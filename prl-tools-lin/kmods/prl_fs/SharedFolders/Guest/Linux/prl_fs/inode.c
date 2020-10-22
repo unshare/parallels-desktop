@@ -223,9 +223,6 @@ static void prlfs_change_attributes(struct inode *inode,
 	if (sbi->host_inodes && (attr->valid & _PATTR2_INO)) {
 		SET_INODE_INO(inode, attr->ino);
 	}
-	else {
-		SET_INODE_INO(inode, get_next_ino());
-	}
 	return;
 }
 
@@ -276,10 +273,8 @@ static int prlfs_mknod(struct inode *dir, struct dentry *dentry, int mode)
 	ret = 0;
 	dentry->d_time = 0;
 	inode = prlfs_get_inode(dir->i_sb, mode);
-	if (inode) {
-		SET_INODE_INO(inode, get_next_ino());
+	if (inode)
 		d_instantiate(dentry, inode);
-	}
 	else
 		ret = -ENOSPC;
 	DPRINTK("EXIT returning %d\n", ret);
@@ -909,6 +904,7 @@ static struct inode *prlfs_get_inode(struct super_block *sb,
 			pfd = ERR_PTR(-ENOMEM);
 		inode_set_pfd(inode, pfd);
 
+		SET_INODE_INO(inode, get_next_ino());
 		switch (mode & S_IFMT) {
 		case S_IFDIR:
 			inode->i_op = &prlfs_dir_iops;
