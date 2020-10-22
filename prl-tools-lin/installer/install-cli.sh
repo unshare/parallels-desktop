@@ -1285,11 +1285,6 @@ install_tools_modules() {
 
 	install_video_rules
 
-	[ "$ARCH" = 'x86_64' ] && arch_suffix=64 || arch_suffix=32
-	local ptiagent_cmd_symlink="$BIN_DIR/ptiagent-cmd"
-	install_symlink \
-			"$INSTALL_DIR_TOOLS/../installer/ptiagent-cmd" \
-			"$ptiagent_cmd_symlink"
 	install_ptiagent_starters
 
 	return $E_NOERROR
@@ -1571,9 +1566,13 @@ install_guest_tools() {
 }
 
 install_ptiagent_starters() {
-	local ptiagent_starter="${INSTALL_DIR_TOOLS}/../install-gui"
+	local ptiagent_starter="${INSTALL_DIR}/installer/ptiagent-wrapper.sh"
 	local ptiagent_symlink="${BIN_DIR}/ptiagent"
 	install_symlink "$ptiagent_starter" "$ptiagent_symlink"
+
+	local ptiagent_cmd_starter="${INSTALL_DIR}/installer/ptiagent-cmd"
+	local ptiagent_cmd_symlink="${BIN_DIR}/ptiagent-cmd"
+	install_symlink "$ptiagent_cmd_starter" "$ptiagent_cmd_symlink"
 
 	setup_session_launcher "${INSTALL_DIR_TOOLS}/ptiagent.desktop"
 }
@@ -1588,8 +1587,10 @@ install_ptiagent() {
 	cp -fR "${INSTALLER_DIR}/ptiagent64" "$tgt_installer_dir"
 	cp -fR "${INSTALLER_DIR}/ptiagent32-cmd" "$tgt_installer_dir"
 	cp -fR "${INSTALLER_DIR}/ptiagent64-cmd" "$tgt_installer_dir"
+	cp -f "${INSTALLER_DIR}/ptiagent-cmd" "$tgt_installer_dir"
 	cp -fR "${INSTALLER_DIR}/iagent32" "$tgt_installer_dir"
 	cp -fR "${INSTALLER_DIR}/iagent64" "$tgt_installer_dir"
+	cp -f "${INSTALLER_DIR}/ptiagent-wrapper.sh" "$tgt_installer_dir"
 
 	mkdir -p "$INSTALL_DIR_TOOLS"
 	cp -f "${TOOLS_DIR}/ptiagent.desktop" "$INSTALL_DIR_TOOLS"
