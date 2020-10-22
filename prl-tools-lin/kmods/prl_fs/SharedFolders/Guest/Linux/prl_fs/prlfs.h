@@ -228,7 +228,7 @@ int host_request_symlink(struct super_block *sb, const void *src_path, int src_l
 #endif
 
 #define MODNAME		"prlfs"
-#define DRV_VERSION	"2.0.0"
+#define DRV_VERSION	"2.0.1"
 #define PFX		MODNAME ": "
 
 #define PRLFS_ROOT_INO 2
