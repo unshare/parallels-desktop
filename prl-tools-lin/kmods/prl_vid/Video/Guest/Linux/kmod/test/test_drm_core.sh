@@ -11,7 +11,8 @@ void test(void) {
 }"
 
 #	4.14 <= kernel
-T1_0="int test(void) {
+T1_0="#include <drm/drm_plane.h>
+int test(void) {
 	return drm_universal_plane_init(
 		(struct drm_device *)NULL,				/* dev */
 		(struct drm_plane *)NULL,				/* plane */
@@ -24,21 +25,9 @@ T1_0="int test(void) {
 		(const char *)\"%d\", (int)0);			/* name */
 }"
 
-#	4.9 <= kernel < v4.14
-T1_1="int test(void) {
-	return drm_universal_plane_init(
-		(struct drm_device *)NULL,				/* dev */
-		(struct drm_plane *)NULL,				/* plane */
-		(uint32_t)0,							/* possible_crtcs */
-		(const struct drm_plane_funcs *)NULL,	/* funcs */
-		(const uint32_t *)NULL,					/* formats */
-		(unsigned int)0,						/* format_count */
-		(enum drm_plane_type)0,					/* type */
-		(const char *)\"%d\", (int)0);			/* name */
-}"
-
 #	4.19 <= kernel
-T2_0="int test(void) {
+T2_0="#include <drm/drm_connector.h>
+int test(void) {
 	return drm_connector_attach_encoder(
 		(struct drm_connector *)NULL, 			/* connector*/
 		(struct drm_encoder *)NULL);			/* encoder */
@@ -68,8 +57,15 @@ void test(void) {
 		(const struct drm_mode_fb_cmd2 *)NULL); /* mode_cmd */
 }"
 
-#	4.12 <= kernel
+#	5.9 <= kernel
 T5_0="#include <drm/drm_gem.h>
+void test(void) {
+	drm_gem_object_put(
+		(struct drm_gem_object *)NULL);			/* obj */
+}"
+
+#	4.12 <= kernel < 5.9
+T5_1="#include <drm/drm_gem.h>
 void test(void) {
 	drm_gem_object_put_unlocked(
 		(struct drm_gem_object *)NULL);			/* obj */
@@ -88,7 +84,8 @@ T7_0="enum drm_minor_type test(void) {
 }"
 
 #	4.12 <= kernel
-T8_0="int test(struct drm_crtc_funcs *funcs) {
+T8_0="#include <drm/drm_crtc.h>
+int test(struct drm_crtc_funcs *funcs) {
 	return funcs->gamma_set(
 		(struct drm_crtc *)NULL,			/* crtc */
 		(u16 *)NULL,						/* r */
@@ -99,7 +96,8 @@ T8_0="int test(struct drm_crtc_funcs *funcs) {
 }"
 
 #	4.8 <= kernel < 4.12
-T8_1="int test(struct drm_crtc_funcs *funcs) {
+T8_1="#include <drm/drm_crtc.h>
+int test(struct drm_crtc_funcs *funcs) {
 	return funcs->gamma_set(
 		(struct drm_crtc *)NULL,			/* crtc */
 		(u16 *)NULL,						/* r */
@@ -109,7 +107,8 @@ T8_1="int test(struct drm_crtc_funcs *funcs) {
 }"
 
 #	kernel < 4.8
-T8_2="void test(struct drm_crtc_funcs *funcs) {
+T8_2="#include <drm/drm_crtc.h>
+void test(struct drm_crtc_funcs *funcs) {
 	funcs->gamma_set(
 		(struct drm_crtc *)NULL,			/* crtc */
 		(u16 *)NULL,						/* r */
@@ -175,8 +174,16 @@ T16_0="void test(struct drm_framebuffer *fb) {
 	fb->hot_x = fb->hot_y = 0;
 }"
 
-#	4.11 <= kernel
+#	5.7 <= kernel
 T17_0="#include <drm/drm_fb_helper.h>
+void test(void) {
+	drm_fb_helper_init(
+		(struct drm_device *)NULL,				/* dev */
+		(struct drm_fb_helper *)NULL);			/* helper */
+}"
+
+#	4.11 <= kernel < 5,7
+T17_1="#include <drm/drm_fb_helper.h>
 void test(void) {
 	drm_fb_helper_init(
 		(struct drm_device *)NULL,				/* dev */
@@ -230,6 +237,26 @@ T22_0=" unsigned int test(unsigned int features) {
 	features |= DRIVER_PRIME;
 }"
 
+#	kernel < 5.9
+T23_0="#include <drm/drm_modes.h>
+int test(struct drm_display_mode *mode) {
+	return mode->vrefresh;
+}"
+
+#	kernel < 5.9
+T24_0="int test(struct drm_driver *drv) {
+	return drv->master_set(
+		(struct drm_device *)NULL,
+		(struct drm_file *)NULL,
+		true);
+}"
+
+#	kernel < 5.7
+T25_0="int test(void) {
+	return drm_fb_helper_single_add_all_connectors(
+		(struct drm_fb_helper *)NULL);
+}"
+
 tfunc() {
 	local i=0
 
@@ -238,7 +265,14 @@ tfunc() {
 		[ -n "${elem}" ]
 	do
 		# cretate source
-		echo "#include <drm/drmP.h>
+		echo "#include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
+#include <drm/drmP.h>
+#else
+#include <drm/drm_drv.h>
+#include <drm/drm_device.h>
+#include <drm/drm_file.h>
+#endif
 ${elem}" > test.c
 
 		# make and delete source
@@ -286,6 +320,9 @@ then
 	echo "-DPRL_DRM_ATOMIC_HELPER_SHUTDOWN_X=$(tfunc T20)"
 	echo "-DPRL_DRM_PRIME_EXPORT_DEV=$(tfunc T21)"
 	echo "-DPRL_DRM_DRIVER_PRIME_DEFINED=$(tfunc T22)"
+	echo "-DPRL_DRM_MODE_VREFRESH_X=$(tfunc T23)"
+	echo "-DPRL_DRM_MASTER_SET=$(tfunc T24)"
+	echo "-DPRL_DRM_FB_HELPER_SINGLE_ADD_ALL_CONNECTORS=$(tfunc T25)"
 else
 	echo "-DPRL_DRM_ENABLED=0"
 fi

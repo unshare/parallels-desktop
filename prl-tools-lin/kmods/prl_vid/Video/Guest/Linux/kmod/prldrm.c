@@ -3,7 +3,19 @@
  */
 
 #if PRL_DRM_ENABLED
+#include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
 #include <drm/drmP.h>
+#else
+#include <drm/drm_drv.h>
+#include <drm/drm_device.h>
+#include <drm/drm_file.h>
+#include <drm/drm_vblank.h>
+#include <drm/drm_fourcc.h>
+#include <drm/drm_ioctl.h>
+#include <drm/drm_sysfs.h>
+#include <linux/pci.h>
+#endif
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_helper.h>
@@ -1037,7 +1049,9 @@ static void prl_kms_connector_mode_add(struct drm_connector *connector,
 	snprintf(_mode.name, sizeof(_mode.name), "%dx%d", width, height);
 	_mode.name[sizeof(_mode.name)-1] = 0;
 
+#if (PRL_DRM_MODE_VREFRESH_X == 1)
 	_mode.vrefresh = drm_mode_vrefresh(&_mode);
+#endif
 
 	dup = drm_mode_duplicate(connector->dev, &_mode);
 	if (dup == NULL) {
@@ -1463,7 +1477,9 @@ static int prl_drm_driver_load(struct drm_device *dev, unsigned long chipset)
 			return ret;
 		}
 
+#if (PRL_DRM_FB_HELPER_SINGLE_ADD_ALL_CONNECTORS == 1)
 		drm_fb_helper_single_add_all_connectors(&fbdev->base);
+#endif
 		drm_fb_helper_initial_config(&fbdev->base, 32);
 		prl_dev->fbdev = fbdev;
 
@@ -1541,7 +1557,11 @@ static int prl_drm_set_busid(struct drm_device *dev, struct drm_master *master)
 }
 #endif
 
+#if (PRL_DRM_MASTER_SET == 1)
 static int prl_drm_master_set(struct drm_device *dev, struct drm_file *file, bool from_open)
+#else
+static void prl_drm_master_set(struct drm_device *dev, struct drm_file *file, bool from_open)
+#endif
 {
 	struct prl_drm_file *prl_file = file->driver_priv;
 	struct prl_drm_device *prl_dev = prl_file->prl_dev;
@@ -1551,7 +1571,9 @@ static int prl_drm_master_set(struct drm_device *dev, struct drm_file *file, boo
 	if (!prl_dev->shared_state.pending && prl_file->use_shared_state)
 		prl_drm_share_state_start(prl_dev, &prl_dev->shared_state);
 
+#if (PRL_DRM_MASTER_SET == 1)
 	return 0;
+#endif
 }
 
 #if (PRL_DRM_MASTER_DROP_X == 1)
