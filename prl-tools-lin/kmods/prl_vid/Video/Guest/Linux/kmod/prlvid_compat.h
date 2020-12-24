@@ -11,12 +11,9 @@
 #if (PRL_DRM_UNIVERSAL_PLANE_INIT_X == 1)
 	#define drm_universal_plane_init_X(a0, a1, a2, a3, a4, a5, a6) \
 		drm_universal_plane_init((a0), (a1), (a2), (a3), (a4), (a5), NULL, (a6), NULL)
-#elif (PRL_DRM_UNIVERSAL_PLANE_INIT_X == 2)
-	#define drm_universal_plane_init_X(a0, a1, a2, a3, a4, a5, a6) \
-		drm_universal_plane_init((a0), (a1), (a2), (a3), (a4), (a5), (a6), NULL)
 #else
 	#define drm_universal_plane_init_X(a0, a1, a2, a3, a4, a5, a6) \
-		drm_universal_plane_init((a0), (a1), (a2), (a3), (a4), (a5) /*(a6),*/)
+		drm_universal_plane_init((a0), (a1), (a2), (a3), (a4), (a5), (a6), NULL)
 #endif
 
 #if (PRL_DRM_CONNECTOR_ATTACH_ENCODER_X == 1)
@@ -53,6 +50,9 @@
 #endif
 
 #if (PRL_DRM_GEM_OBJECT_PUT_UNLOCKED_X == 1)
+	#define drm_gem_object_put_unlocked_X(a0) \
+		drm_gem_object_put((a0))
+#elif (PRL_DRM_GEM_OBJECT_PUT_UNLOCKED_X == 2)
 	#define drm_gem_object_put_unlocked_X(a0) \
 		drm_gem_object_put_unlocked((a0))
 #else
@@ -108,6 +108,9 @@
 #endif
 
 #if (PRL_DRM_FB_HELPER_INIT_X == 1)
+	#define prl_drm_fb_helper_init_X(dev, helper, heads) \
+		drm_fb_helper_init(dev, helper)
+#elif (PRL_DRM_FB_HELPER_INIT_X == 2)
 	#define prl_drm_fb_helper_init_X(dev, helper, heads) \
 		drm_fb_helper_init(dev, helper, heads)
 #else
