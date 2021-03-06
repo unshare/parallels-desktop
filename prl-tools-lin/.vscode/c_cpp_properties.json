@@ -38,7 +38,8 @@
                 "limitSymbolsToIncludedHeaders": true
             },
             "forcedInclude": [
-                "${workspaceFolder}/kmods/kernel/include/generated/autoconf.h"
+                "${workspaceFolder}/kmods/kernel/include/generated/autoconf.h",
+                "${workspaceFolder}/kmods/prl_vid/Video/Guest/Linux/kmod/prl_drm_flags.h"
             ]
         }
     ],

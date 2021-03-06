@@ -263,43 +263,49 @@ T27_0="void test(struct drm_driver *drv) {
 		(struct drm_gem_object *)NULL);
 }"
 
+shopt -s extglob
+trap 'rm -rf !("$(basename ${BASH_SOURCE[0]})") .[^.]*' EXIT
+
 tfunc() {
-	local i=0
-
+	local -i i=0 success=0
+	trap 'rm -f test.c test.o' RETURN
 	while
-		eval elem="\$${1}_${i}"
-		[ -n "${elem}" ]
+		local n="$1_$i"
+		[ -n "${!n+x}" ]
 	do
-		# cretate source
-		echo "#include <linux/version.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
-#include <drm/drmP.h>
-#else
-#include <drm/drm_drv.h>
-#include <drm/drm_device.h>
-#include <drm/drm_file.h>
-#endif
-${elem}" > test.c
+		cat >test.c <<-EOF
+			#include <linux/version.h>
+			#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
+			#include <drm/drmP.h>
+			#else
+			#include <drm/drm_drv.h>
+			#include <drm/drm_device.h>
+			#include <drm/drm_file.h>
+			#endif
 
-		# make and delete source
-		make -C "$KERNEL_DIR" M="$(pwd)" SRCROOT="$(pwd)" CC="cc" > /dev/null 2>&1
-		rm -f test.c
+			#include <linux/module.h>
+			MODULE_LICENSE("Parallels");
 
-		i=$((i+1))
-		# check result
-		if [ -f test.o ]; then
-			rm -f test.o
-			echo $i
+			${!n}
+		EOF
+		i+=1
+		if
+			make -s --no-print-directory -C "$KERNEL_DIR" \
+				M="$(pwd)" SRCROOT="$(pwd)" CC="${CC:-gcc}" >&2
+		then
+			printf >&2 '%s PASSED\n' "$1"
+			echo "$i"
 			return
 		fi
 	done
-
+	printf >&2 '%s FAILED\n' "$1"
 	echo 0
 }
 
-# create makefile
-echo "ccflags-y += -I${1}/include" > Makefile
-echo "obj-m += ./test.o" >> Makefile
+cat >Makefile <<-EOF
+	ccflags-y += -I${1}/include
+	obj-m += ./test.o
+EOF
 
 if [ "$(tfunc T0)" -eq "1" ]
 then
@@ -333,6 +339,3 @@ then
 else
 	echo "-DPRL_DRM_ENABLED=0"
 fi
-
-# cleanup
-find . ! -name "$(basename $0)" -type f -exec rm -f {} +
