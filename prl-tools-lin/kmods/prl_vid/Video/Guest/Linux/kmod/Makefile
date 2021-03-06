@@ -33,22 +33,21 @@ ccflags-y += -I$(obj)/../../../Interfaces
 ccflags-y += -I$(obj)/../../../../../prl_tg/Toolgate/Interfaces
 ccflags-y += -I$(obj)/../../../../../prl_tg/Toolgate/Guest/Linux/Interfaces
 ccflags-y += -I$(obj)/../../../../../prl_tg/Toolgate/Guest/Linux/prl_tg
-ccflags-y += $(PRL_DRM_CFLAGS)
+ccflags-y += -include $(obj)/prl_drm_flags-$(KVER).h
 
 obj-m += $(DRIVER).o
 $(DRIVER)-objs += prlvid.o prldrm.o prlvtg.o
 
-prl_vid: prl_drm_flags $(CFILES)
+prl_vid: prl_drm_flags-$(KVER).h $(CFILES)
 	$(info Start compile $(DRIVER)...)
 	$(MAKE) -C $(KERNEL_DIR) M=$(DRIVER_DIR) SRCROOT=$(DRIVER_DIR) CC=$(CC) modules
 
-prl_drm_flags:
+prl_drm_flags-$(KVER).h: test/test_drm_core.sh
 	$(info Start checking drm core on kernel $(KERNEL_DIR)...)
-	$(eval PRL_DRM_CFLAGS := $(shell cd ./test; ./test_drm_core.sh $(KERNEL_DIR)) )
-	$(info Result extra flags: $(PRL_DRM_CFLAGS))
+	(cd ./test; CC=$(CC) ./test_drm_core.sh $(KERNEL_DIR)) | sed -Ee 's/^-D([^=]+)=/#define \1 /g' >$@
 
 clean:
 	$(info Start cleaning $(DRIVER)...)
 	rm -rf *.o* *.ko *.mod* *symvers .tmp_versions .*.cmd *.ver modules.order
 
-.PHONY: prl_drm_flags clean
+.PHONY: prl_vid clean
