@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "augustocdias.tasks-shell-input",
+        "google.selinux-policy-languages",
+        "ms-vscode.cpptools",
+        "wayou.vscode-todo-highlight"
+    ]
+}
