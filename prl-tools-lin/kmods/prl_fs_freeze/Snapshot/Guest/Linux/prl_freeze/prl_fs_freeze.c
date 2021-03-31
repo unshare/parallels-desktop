@@ -21,6 +21,7 @@
 #include <linux/workqueue.h>
 #include <linux/namei.h>
 #include <linux/slab.h>
+#include <linux/blkdev.h>
 #include <asm/uaccess.h>
 #include "prlfs_freeze_compat.h"
 
