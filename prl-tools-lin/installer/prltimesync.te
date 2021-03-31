@@ -25,5 +25,6 @@ allow prltimesync_t var_log_t:file { open read write setattr };
 allow prltimesync_t proc_t:file { open read write };
 allow prltimesync_t etc_t:file { open read write };
 allow prltimesync_t etc_t:dir { open read write remove_name };
+allow prltimesync_t var_run_t:file { read write };
 allow prltimesync_t shell_exec_t:file { open read execute };
 allow prltimesync_t self:capability sys_time;

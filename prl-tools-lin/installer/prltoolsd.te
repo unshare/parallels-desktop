@@ -34,6 +34,10 @@ gen_require(`
 	type kernel_t;
 	type prltimesync_exec_t;
 	type prltimesync_t;
+	type system_dbusd_var_run_t;
+	type system_dbusd_t;
+	type accountsd_t;
+	type systemd_logind_t;
 ')
 
 allow prltoolsd_t kernel_t:unix_dgram_socket sendto;
@@ -62,18 +66,25 @@ term_write_all_terms(prltoolsd_t)
 term_setattr_console(prltoolsd_t)
 auth_read_passwd(prltoolsd_t)
 allow prltoolsd_t var_log_t:file { open setattr };
-allow prltoolsd_t etc_t:dir write;
 allow prltoolsd_t var_run_t:file { create write open getattr unlink read lock };
 allow prltoolsd_t var_lib_t:dir { write add_name create };
 allow prltoolsd_t var_lib_t:file { create write open getattr unlink read lock };
 allow prltoolsd_t init_var_lib_t:dir search;
 allow prltoolsd_t init_var_lib_t:file { open read write };
 allow prltoolsd_t init_var_run_t:file { open read write lock unlink };
-allow prltoolsd_t etc_t:dir remove_name;
-allow prltoolsd_t hostname_etc_t:file write;
+allow prltoolsd_t etc_t:file { create };
+allow prltoolsd_t etc_t:dir { create add_name remove_name write };
+allow prltoolsd_t hostname_etc_t:file { open write getattr };
 allow prltoolsd_t self:capability sys_admin;
 allow prltoolsd_t var_lib_t:dir remove_name;
 type_transition prltoolsd_t prltimesync_exec_t : process prltimesync_t;
 allow prltimesync_t prltoolsd_t:process { sigchld };
 allow prltoolsd_t prltimesync_exec_t:file { open read execute };
 allow prltoolsd_t prltimesync_t:process { transition signal };
+allow prltoolsd_t system_dbusd_var_run_t:dir search;
+allow prltoolsd_t system_dbusd_var_run_t:sock_file write;
+allow prltoolsd_t system_dbusd_t:dbus send_msg;
+allow prltoolsd_t system_dbusd_t:unix_stream_socket connectto;
+allow prltoolsd_t accountsd_t:dbus send_msg;
+allow systemd_logind_t prltoolsd_t:dbus send_msg;
+allow prltoolsd_t self:lockdown integrity;
