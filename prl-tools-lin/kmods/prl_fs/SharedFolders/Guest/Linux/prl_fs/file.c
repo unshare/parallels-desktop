@@ -15,6 +15,11 @@
 #include <linux/backing-dev.h>
 #include "prlfs.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+#include <linux/uio.h>
+#define PRLFS_NEED_ITER_IO
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
 inline struct radix_tree_root *prlfs_page_cache_get_locked(
 		struct address_space *mapping)
@@ -422,17 +427,29 @@ out:
 }
 
 static ssize_t prlfs_read(struct file *filp, char *buf, size_t size,
+#ifdef PRLFS_NEED_ITER_IO
+								bool user,
+#endif
 								loff_t *off)
 {
+#ifndef PRLFS_NEED_ITER_IO
+	const bool user = 1;
+#endif
 	struct dentry *dentry = FILE_DENTRY(filp);
 	struct inode *inode = dentry->d_inode;
 
-	return prlfs_rw(inode, buf, size, off, 0, 1, TG_REQ_COMMON);
+	return prlfs_rw(inode, buf, size, off, 0, user, TG_REQ_COMMON);
 }
 
 static ssize_t prlfs_write(struct file *filp, const char *buf, size_t size,
+#ifdef PRLFS_NEED_ITER_IO
+								 bool user,
+#endif
 								 loff_t *off)
 {
+#ifndef PRLFS_NEED_ITER_IO
+	const bool user = 1;
+#endif
 	ssize_t ret;
 	struct dentry *dentry = FILE_DENTRY(filp);
 	struct inode *inode = dentry->d_inode;
@@ -445,7 +462,7 @@ static ssize_t prlfs_write(struct file *filp, const char *buf, size_t size,
 		real_off = *off;
 
 	prlfs_inode_lock(inode);
-	ret = prlfs_rw(inode, (char *)buf, size, &real_off, 1, 1, TG_REQ_COMMON);
+	ret = prlfs_rw(inode, (char *)buf, size, &real_off, 1, user, TG_REQ_COMMON);
 	dentry->d_time = 0;
 	if (ret < 0)
 		goto out;
@@ -462,6 +479,33 @@ out:
 	return ret;
 }
 
+#ifdef PRLFS_NEED_ITER_IO
+/* loosely based on `do_loop_readv_writev` from `fs/read_write.c` */
+static ssize_t
+prlfs_do_loop_readv_writev(struct kiocb *cb, struct iov_iter *iter) {
+	const bool user = iter_is_iovec(iter);
+	typedef ssize_t (*regular_io)(struct file *, char *, size_t, bool, loff_t *);
+	const regular_io io = iov_iter_rw(iter) ? (regular_io)prlfs_write : prlfs_read;
+	ssize_t r = 0;
+	if (unlikely(!user && !iov_iter_is_kvec(iter))) return -EINVAL;
+	while (iov_iter_count(iter) > 0) {
+		/* based on `iov_iter_iovec` from `include/linux/uio.h`, had to inline for `iovec`/`kvec` symmetry */
+		void *base = (user ? iter->iov->iov_base : iter->kvec->iov_base) + iter->iov_offset;
+		size_t len = min((user ? iter->iov->iov_len : iter->kvec->iov_len) - iter->iov_offset, iter->count);
+		ssize_t n = io(cb->ki_filp, base, len, user, &cb->ki_pos);
+		if (unlikely(n <= 0)) {
+			if (!r) r = n;
+			break;
+		}
+		r += n;
+		if (n != len) break;
+		iov_iter_advance(iter, n);
+	}
+	if (unlikely(cb->ki_complete)) printk(KERN_WARNING PFX "FIXME: cb->ki_complete is set, not sure what to do\n");
+	return r;
+}
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
 #ifdef PRL_SIMPLE_SYNC_FILE
 int simple_sync_file(struct file *filp, struct dentry *dentry, int datasync)
@@ -473,8 +517,13 @@ int simple_sync_file(struct file *filp, struct dentry *dentry, int datasync)
 
 struct file_operations prlfs_file_fops = {
 	.open		= prlfs_open,
+#ifdef PRLFS_NEED_ITER_IO
+	.read_iter	= prlfs_do_loop_readv_writev,
+	.write_iter	= prlfs_do_loop_readv_writev,
+#else
 	.read           = prlfs_read,
 	.write		= prlfs_write,
+#endif
 	.llseek         = generic_file_llseek,
 	.release	= prlfs_release,
 	.mmap		= generic_file_mmap,
