@@ -370,6 +370,11 @@ void __exit cleanup_module(void)
 	cancel_timeout();
 }
 
+#ifdef INTELLISENSE
+#define KBUILD_MODNAME "prl_fs_freeze"
+#define KBUILD_MODFILE KBUILD_MODNAME ## ".mod"
+#endif
+
 MODULE_AUTHOR ("Parallels International GmbH");
 MODULE_DESCRIPTION ("Parallels suspend/resume helper");
 MODULE_LICENSE("Parallels");

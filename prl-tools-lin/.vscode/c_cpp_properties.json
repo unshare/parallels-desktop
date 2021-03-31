@@ -17,6 +17,7 @@
                 "${workspaceFolder}/kmods/prl_vid/Video/Interfaces"
             ],
             "defines": [
+                "INTELLISENSE",
                 "__GNUC__",
                 "__KERNEL__",
                 "PRLFS_IGET"

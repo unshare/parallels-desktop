@@ -444,6 +444,11 @@ static void pvmnet_setup(struct net_device *dev)
 	SET_ETHTOOL_OPS(dev, &pvmnet_ethtool_ops);
 }
 
+#ifdef INTELLISENSE
+#define KBUILD_MODNAME "prlvmnet"
+#define KBUILD_MODFILE KBUILD_MODNAME ## ".mod"
+#endif
+
 /* Module initialization/cleanup */
 static int pvmnet_module_init(void)
 {

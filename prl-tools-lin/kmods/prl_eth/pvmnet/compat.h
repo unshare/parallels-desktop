@@ -57,4 +57,10 @@
 
 #endif /* 3.17 */
 
+#ifdef INTELLISENSE
+/* IntelliSense fails miserably in inline assembly */
+#undef BUG
+#define BUG() do {} while (0)
+#endif
+
 #endif	/* __COMPAT_H__ */
