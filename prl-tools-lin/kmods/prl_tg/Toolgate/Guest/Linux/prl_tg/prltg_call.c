@@ -26,6 +26,8 @@ static int tg_req_paged_size(TG_REQ_DESC *sdesc)
 			int npages = ((sbuf->u.Va & ~PAGE_MASK) +
 				sbuf->ByteCount + ~PAGE_MASK) >> PAGE_SHIFT;
 			dsize += npages * sizeof(u64);
+			if (dsize < 0)
+				break;
 		}
 	}
 	// If we have dsize overflow here, it's definitely corrupted request. Skip it.

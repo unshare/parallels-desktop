@@ -14,6 +14,7 @@
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/fs.h>
+#include <linux/blkdev.h>
 #include <linux/buffer_head.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
@@ -99,7 +100,7 @@ DEFINE_MUTEX(frozen_mutex);
 int freeze_sb(struct super_block *sb)
 {
 	struct frozen_sb *fsb;
-	struct super_block *res;
+	int ret;
 
 	if (!sb)
 		return -EINVAL;
@@ -112,16 +113,13 @@ int freeze_sb(struct super_block *sb)
 	if (!fsb)
 		return -ENOMEM;
 
-	res = freeze_bdev(sb->s_bdev);
-	if (!res)
-		res = ERR_PTR(-ENODEV);
-
-	if (IS_ERR(res)) {
+	ret = prl_freeze_bdev(sb->s_bdev);
+	if (ret) {
 		kfree(fsb);
-		return PTR_ERR(res);
+		return ret;
 	}
 
-	fsb->sb = res;
+	fsb->sb = sb;
 	list_add_tail(&fsb->list, &frozen_sb);
 	return 0;
 }
@@ -133,7 +131,7 @@ int thaw_sb(struct super_block *sb)
 	list_for_each_entry(fsb, &frozen_sb, list) {
 		if (fsb->sb != sb)
 			continue;
-		thaw_bdev(fsb->sb->s_bdev, fsb->sb);
+		prl_thaw_bdev(fsb->sb->s_bdev, fsb->sb);
 		list_del(&fsb->list);
 		kfree(fsb);
 		return 0;
@@ -168,7 +166,7 @@ int thaw_all(void)
 
 	mutex_lock(&frozen_mutex);
 	list_for_each_entry_safe(fsb, tmp, &frozen_sb, list) {
-		thaw_bdev(fsb->sb->s_bdev, fsb->sb);
+		prl_thaw_bdev(fsb->sb->s_bdev, fsb->sb);
 		kfree(fsb);
 	}
 	INIT_LIST_HEAD(&frozen_sb);

@@ -49,4 +49,28 @@ prlfs_freeze_proc_create(char *name, umode_t mode,
 #endif
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+
+#define prl_freeze_bdev(bdev) freeze_bdev(bdev)
+#define prl_thaw_bdev(bdev, sb) thaw_bdev(bdev)
+
+#else
+
+int prl_freeze_bdev(struct block_device *bdev)
+{
+	struct super_block *ret;
+
+	ret = freeze_bdev(bdev);
+	if (!ret)
+		return -ENODEV;
+	if (IS_ERR(ret))
+		return PTR_ERR(ret);
+
+	return 0;
+}
+
+#define prl_thaw_bdev(bdev, sb) thaw_bdev((bdev), (sb))
+
+#endif
+
 #endif

@@ -1220,13 +1220,13 @@ static void prl_kms_crtc_helper_mode_set_nofb(struct drm_crtc *crtc)
 	DRM_DEBUG_DRIVER(PFX_FMT CR_FMT, PFX_ARG, CR_ARG(crtc));
 }
 
-static int prl_kms_crtc_helper_atomic_check(struct drm_crtc *crtc, struct drm_crtc_state *new_state)
+static int prl_kms_crtc_helper_atomic_check(struct drm_crtc *crtc, struct PRL_CRTC_STATE_T *new_state)
 {
 	DRM_DEBUG_DRIVER(PFX_FMT CR_FMT " cr_st:%p", PFX_ARG, CR_ARG(crtc), new_state);
 	return 0;
 }
 
-static void prl_kms_crtc_helper_atomic_begin(struct drm_crtc *crtc, struct drm_crtc_state *old_crtc_state)
+static void prl_kms_crtc_helper_atomic_begin(struct drm_crtc *crtc, struct PRL_CRTC_STATE_T *old_crtc_state)
 {
 	DRM_DEBUG_DRIVER(PFX_FMT CR_FMT " cr_st:%p", PFX_ARG, CR_ARG(crtc), old_crtc_state);
 }
@@ -1236,7 +1236,7 @@ static void prl_kms_crtc_helper_commit(struct drm_crtc *crtc)
 	DRM_DEBUG_DRIVER(PFX_FMT " " CR_FMT, PFX_ARG, CR_ARG(crtc));
 }
 
-static void prl_kms_crtc_helper_atomic_flush(struct drm_crtc *crtc, struct drm_crtc_state *old_crtc_state)
+static void prl_kms_crtc_helper_atomic_flush(struct drm_crtc *crtc, struct PRL_CRTC_STATE_T *old_crtc_state)
 {
 	struct drm_plane *primary = crtc->primary;
 	struct drm_pending_vblank_event *event = crtc->state->event;
@@ -1528,23 +1528,6 @@ irqreturn_t prl_drm_thread_fn(int irq, void *arg)
 	return IRQ_NONE;
 }
 
-static u32 prl_drm_get_vblank_counter(struct drm_device *dev, unsigned int pipe)
-{
-	DRM_DEBUG_DRIVER(PFX_FMT, PFX_ARG);
-	return 0;
-}
-
-static int prl_drm_enable_vblank(struct drm_device *dev, unsigned int pipe)
-{
-	DRM_DEBUG_DRIVER(PFX_FMT, PFX_ARG);
-	return -ENOSYS;
-}
-
-static void prl_drm_disable_vblank(struct drm_device *dev, unsigned int pipe)
-{
-	DRM_DEBUG_DRIVER(PFX_FMT, PFX_ARG);
-}
-
 #if (PRL_DRM_SET_BUSID_X == 1)
 static int prl_drm_set_busid(struct drm_device *dev, struct drm_master *master)
 {
@@ -1661,13 +1644,6 @@ static void prl_drm_postclose(struct drm_device *dev, struct drm_file *file)
 	DRM_DEBUG_DRIVER(PFX_FMT, PFX_ARG);
 }
 
-static void prl_drm_gem_close_object(struct drm_gem_object *obj,
-	struct drm_file *file)
-{
-	struct prl_gem_object *prl_go = (struct prl_gem_object*)obj;
-	DRM_DEBUG_DRIVER(PFX_FMT " " GO_FMT, PFX_ARG, GO_ARG(prl_go));
-}
-
 static void prl_drm_gem_free_object(struct drm_gem_object *obj)
 {
 	struct prl_gem_object *prl_go = (struct prl_gem_object*)obj;
@@ -1693,6 +1669,99 @@ static void prl_drm_gem_free_object(struct drm_gem_object *obj)
 	drm_gem_object_release(&prl_go->base);
 	kfree(prl_go);
 }
+
+static PRL_VM_FAULT_T prl_vm_insert_mixed(struct vm_area_struct *vma, unsigned long addr, pfn_t pfn);
+
+// GEM vm operations
+#if (PRL_DRM_VM_OPERATIONS_FAULT_X == 0)
+static PRL_VM_FAULT_T prl_drm_gem_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+{
+#else
+static PRL_VM_FAULT_T prl_drm_gem_vm_fault(struct vm_fault *vmf)
+{
+	struct vm_area_struct *vma = vmf->vma;
+#endif
+
+#if (PRL_DRM_VM_FAULT_ADDRESS_X == 1)
+	unsigned long address = vmf->address;
+#else
+	unsigned long address = (unsigned long)vmf->virtual_address;
+#endif
+
+	struct prl_gem_object *prl_go = vma->vm_private_data;
+	unsigned long pfn = 0;
+	PRL_VM_FAULT_T ret = VM_FAULT_NOPAGE;
+
+	if (address > vma->vm_end) {
+		DRM_INFO(PFX_FMT " " VMA_FMT " " GO_FMT " fault:%lx -> out of [start, end]!!",
+			PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go), address);
+		return VM_FAULT_OOM;
+	}
+
+	if (mutex_lock_interruptible(&prl_go->lock)) {
+		DRM_ERROR(PFX_FMT " failed to lock!", PFX_ARG);
+		return VM_FAULT_SIGBUS;
+	}
+
+	if (prl_go->shared_index) {
+		resource_size_t phys_off = (prl_go->shared_index - 1)*prl_shared_buf_size;
+
+		if (prl_go->uptr) {
+			DRM_DEBUG_DRIVER(PFX_FMT " already mapped", PFX_ARG);
+			goto out_unlock;
+		}
+
+		DRM_DEBUG_DRIVER(PFX_FMT " " VMA_FMT " " GO_FMT " fault:%lx phys_off:%lld",
+			PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go), address, phys_off);
+
+		ret = prl_drm_mmap(prl_go->base.dev->dev_private, vma, phys_off);
+		if (!(ret & VM_FAULT_ERROR))
+			prl_go->uptr = (void*)vma->vm_start;
+
+		goto out_unlock;
+	}
+
+	if (is_vmalloc_addr(prl_go->kptr))
+		pfn = vmalloc_to_pfn(prl_go->kptr + (address - vma->vm_start));
+	else
+		pfn = page_to_pfn(virt_to_page(prl_go->kptr + (address - vma->vm_start)));
+
+	ret = prl_vm_insert_mixed(vma, address, __pfn_to_pfn_t(pfn, PFN_DEV));
+	if (!(ret & VM_FAULT_ERROR))
+		prl_go->uptr = (void*)vma->vm_start;
+
+out_unlock:
+	mutex_unlock(&prl_go->lock);
+	return ret;
+}
+
+static void prl_drm_gem_vm_open(struct vm_area_struct *vma)
+{
+	struct prl_gem_object *prl_go = vma->vm_private_data;
+	drm_gem_vm_open(vma);
+	DRM_DEBUG_DRIVER(PFX_FMT " " VMA_FMT " " GO_FMT, PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go));
+}
+
+static void prl_drm_gem_vm_close(struct vm_area_struct *vma)
+{
+	struct prl_gem_object *prl_go = vma->vm_private_data;
+	prl_go->uptr = 0;
+	drm_gem_vm_close(vma);
+	DRM_DEBUG_DRIVER(PFX_FMT " " VMA_FMT " " GO_FMT, PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go));
+}
+
+static const struct vm_operations_struct prl_drm_gem_vm_ops = {
+	.fault = prl_drm_gem_vm_fault,
+	.open = prl_drm_gem_vm_open,
+	.close = prl_drm_gem_vm_close,
+};
+
+#if (PRL_DRM_GEM_DRM_DRIVER_CALLS == 0)
+static const struct drm_gem_object_funcs prl_drm_gem_object_funcs = {
+	.free = prl_drm_gem_free_object,
+	.vm_ops = &prl_drm_gem_vm_ops,
+};
+#endif
 
 static struct prl_gem_object *prl_drm_gem_dumb_create_helper(struct drm_device *dev,
 	uint32_t width, uint32_t height, uint32_t bpp,
@@ -1779,6 +1848,11 @@ static struct prl_gem_object *prl_drm_gem_dumb_create_helper(struct drm_device *
 		goto gem_object_failed;
 	}
 
+	// For newest kernels all gen-specific callbacks moves to drm_gem_object struct
+#if (PRL_DRM_GEM_DRM_DRIVER_CALLS == 0)
+	prl_go->base.funcs = &prl_drm_gem_object_funcs;
+#endif
+
 	DRM_DEBUG_DRIVER(PFX_FMT "%u x %u x %u = %u x %u pitch:%u size:%llu " GO_FMT " ALLOCATED(%lu)",
 		PFX_ARG, width, height, bpp, w, h, *pitch, *size, GO_ARG(prl_go),
 		prl_dev->alloc_size);
@@ -1850,14 +1924,6 @@ range_check_failed:
 	return ret;
 }
 
-static int prl_drm_gem_dumb_destroy(struct drm_file *file,
-	struct drm_device *dev,
-	uint32_t handle)
-{
-	DRM_DEBUG_DRIVER(PFX_FMT "handle:%d", PFX_ARG, handle);
-	return drm_gem_dumb_destroy(file, dev, handle);
-}
-
 static int prl_drm_prime_fd_to_handle(struct drm_device *dev,
 	struct drm_file *file, int fd, u32 *handle)
 {
@@ -1875,23 +1941,6 @@ static int prl_drm_prime_handle_to_fd(struct drm_device *dev,
 	DRM_DEBUG_DRIVER(PFX_FMT " h:%08x flg:%08x -> fd:%08x (%08x)",
 		PFX_ARG, handle, flags, *prime_fd, ret);
 	return ret;
-}
-
-#if (PRL_DRM_PRIME_EXPORT_DEV == 1)
-static struct dma_buf *prl_drm_gem_prime_export(struct drm_device *dev,
-	struct drm_gem_object *obj, int flags)
-#else
-static struct dma_buf *prl_drm_gem_prime_export(struct drm_gem_object *obj, int flags)
-#endif
-{
-	struct dma_buf *dma_buf;
-#if (PRL_DRM_PRIME_EXPORT_DEV == 1)
-	dma_buf = drm_gem_prime_export(dev, obj, flags);
-#else
-	dma_buf = drm_gem_prime_export(obj, flags);
-#endif
-	DRM_DEBUG_DRIVER(PFX_FMT " " GO_FMT " fl:%08x -> dma:%p", PFX_ARG, GO_ARG(obj), flags, dma_buf);
-	return dma_buf;
 }
 
 static struct drm_gem_object *prl_drm_gem_prime_import(struct drm_device *dev,
@@ -1972,90 +2021,6 @@ static const struct vm_operations_struct prl_drm_ss_vm_ops = {
 	.fault = prl_drm_ss_vm_fault,
 	.open = prl_drm_ss_vm_open,
 	.close = prl_drm_ss_vm_close,
-};
-
-// GEM vm operations
-#if (PRL_DRM_VM_OPERATIONS_FAULT_X == 0)
-static PRL_VM_FAULT_T prl_drm_gem_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
-{
-#else
-static PRL_VM_FAULT_T prl_drm_gem_vm_fault(struct vm_fault *vmf)
-{
-	struct vm_area_struct *vma = vmf->vma;
-#endif
-
-#if (PRL_DRM_VM_FAULT_ADDRESS_X == 1)
-	unsigned long address = vmf->address;
-#else
-	unsigned long address = (unsigned long)vmf->virtual_address;
-#endif
-
-	struct prl_gem_object *prl_go = vma->vm_private_data;
-	unsigned long pfn = 0;
-	PRL_VM_FAULT_T ret = VM_FAULT_NOPAGE;
-
-	if (address > vma->vm_end) {
-		DRM_INFO(PFX_FMT " " VMA_FMT " " GO_FMT " fault:%lx -> out of [start, end]!!",
-			PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go), address);
-		return VM_FAULT_OOM;
-	}
-
-	if (mutex_lock_interruptible(&prl_go->lock)) {
-		DRM_ERROR(PFX_FMT " failed to lock!", PFX_ARG);
-		return VM_FAULT_SIGBUS;
-	}
-
-	if (prl_go->shared_index) {
-		resource_size_t phys_off = (prl_go->shared_index - 1)*prl_shared_buf_size;
-
-		if (prl_go->uptr) {
-			DRM_DEBUG_DRIVER(PFX_FMT " already mapped", PFX_ARG);
-			goto out_unlock;
-		}
-
-		DRM_DEBUG_DRIVER(PFX_FMT " " VMA_FMT " " GO_FMT " fault:%lx phys_off:%lld",
-			PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go), address, phys_off);
-
-		ret = prl_drm_mmap(prl_go->base.dev->dev_private, vma, phys_off);
-		if (!(ret & VM_FAULT_ERROR))
-			prl_go->uptr = (void*)vma->vm_start;
-
-		goto out_unlock;
-	}
-
-	if (is_vmalloc_addr(prl_go->kptr))
-		pfn = vmalloc_to_pfn(prl_go->kptr + (address - vma->vm_start));
-	else
-		pfn = page_to_pfn(virt_to_page(prl_go->kptr + (address - vma->vm_start)));
-
-	ret = prl_vm_insert_mixed(vma, address, __pfn_to_pfn_t(pfn, PFN_DEV));
-	if (!(ret & VM_FAULT_ERROR))
-		prl_go->uptr = (void*)vma->vm_start;
-
-out_unlock:
-	mutex_unlock(&prl_go->lock);
-	return ret;
-}
-
-static void prl_drm_gem_vm_open(struct vm_area_struct *vma)
-{
-	struct prl_gem_object *prl_go = vma->vm_private_data;
-	drm_gem_vm_open(vma);
-	DRM_DEBUG_DRIVER(PFX_FMT " " VMA_FMT " " GO_FMT, PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go));
-}
-
-static void prl_drm_gem_vm_close(struct vm_area_struct *vma)
-{
-	struct prl_gem_object *prl_go = vma->vm_private_data;
-	prl_go->uptr = 0;
-	drm_gem_vm_close(vma);
-	DRM_DEBUG_DRIVER(PFX_FMT " " VMA_FMT " " GO_FMT, PFX_ARG, VMA_ARG(vma), GO_ARG(prl_go));
-}
-
-static const struct vm_operations_struct prl_drm_gem_vm_ops = {
-	.fault = prl_drm_gem_vm_fault,
-	.open = prl_drm_gem_vm_open,
-	.close = prl_drm_gem_vm_close,
 };
 
 // fops:
@@ -2514,9 +2479,6 @@ static struct drm_driver prl_drm_driver = {
 	.load = prl_drm_driver_load,
 	.unload = prl_drm_driver_unload,
 	.irq_handler = prl_drm_irq_handler,
-	.get_vblank_counter = prl_drm_get_vblank_counter,
-	.enable_vblank = prl_drm_enable_vblank,
-	.disable_vblank = prl_drm_disable_vblank,
 	.master_set = prl_drm_master_set,
 	.master_drop = prl_drm_master_drop,
 #if (PRL_DRM_SET_BUSID_X == 1)
@@ -2527,15 +2489,14 @@ static struct drm_driver prl_drm_driver = {
 
 	.dumb_create = prl_drm_gem_dumb_create,
 	.dumb_map_offset = prl_drm_gem_dumb_map_offset,
-	.dumb_destroy = prl_drm_gem_dumb_destroy,
 
 	.prime_fd_to_handle = prl_drm_prime_fd_to_handle,
 	.prime_handle_to_fd = prl_drm_prime_handle_to_fd,
-	.gem_prime_export = prl_drm_gem_prime_export,
 	.gem_prime_import = prl_drm_gem_prime_import,
-	.gem_close_object = prl_drm_gem_close_object,
+#if (PRL_DRM_GEM_DRM_DRIVER_CALLS == 1)
 	.gem_free_object_unlocked = prl_drm_gem_free_object,
 	.gem_vm_ops = &prl_drm_gem_vm_ops,
+#endif
 	.ioctls = prl_drm_ioctls,
 	.num_ioctls = ARRAY_SIZE(prl_drm_ioctls),
 

@@ -37,14 +37,6 @@
 #define PDE_DATA(x) (PDE(x)->data)
 #endif
 
-#if defined(CONFIG_X86_64) && defined(CONFIG_COMPAT)
-#include <linux/compat.h>
-#define	PRL_32BIT_COMPAT_TEST \
-	((test_thread_flag(TIF_IA32)) && (nbytes == sizeof(compat_uptr_t)))
-#else
-#define PRL_32BIT_COMPAT_TEST	0
-#endif
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
 #define PROC_OWNER(p, own)	p->owner = own
 #else
@@ -117,6 +109,12 @@
 #else
 #define prl_mmap_read_lock(mm) down_read(&(mm)->mmap_sem)
 #define prl_mmap_read_unlock(mm) up_read(&(mm)->mmap_sem)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0)
+#define prl_in_compat_syscall() in_compat_syscall()
+#else
+#define prl_in_compat_syscall() test_thread_flag(TIF_IA32)
 #endif
 
 #endif /* __PRL_TG_COMPAT_H__ */

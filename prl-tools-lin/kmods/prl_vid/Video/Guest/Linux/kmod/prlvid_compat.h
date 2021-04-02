@@ -145,3 +145,9 @@
 #endif
 
 #endif
+
+#if (PRL_KMS_CRTC_ATOMIC_STATE_X == 1)
+	#define PRL_CRTC_STATE_T drm_atomic_state
+#else
+	#define PRL_CRTC_STATE_T drm_crtc_state
+#endif

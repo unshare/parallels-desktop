@@ -244,7 +244,7 @@ static ssize_t prl_tg_write(struct file *filp, const char __user *buf,
 	TG_REQ_DESC sdesc;
 	TG_REQUEST src;
 
-	if ((nbytes != sizeof(TG_REQUEST *)) && !PRL_32BIT_COMPAT_TEST)
+	if (!prl_tg_req_ptr_size_check(nbytes))
 		return -EINVAL;
 
 	if (copy_from_user(&ureq, buf, nbytes))
