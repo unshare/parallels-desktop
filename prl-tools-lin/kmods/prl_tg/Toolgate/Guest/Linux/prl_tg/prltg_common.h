@@ -4,8 +4,10 @@
 
 #ifndef __PRL_TG_COMMON_H__
 #define __PRL_TG_COMNON_H__
+
 #include <linux/version.h>
 #include <linux/pm.h>
+#include <linux/compat.h>
 #include <video/vga.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
@@ -201,4 +203,14 @@ int prl_tg_resume_common(struct tg_dev *dev);
 
 int prl_tg_user_to_host_request_prepare(void *ureq, TG_REQ_DESC *sdesc, TG_REQUEST *src);
 int prl_tg_user_to_host_request_complete(char *u, TG_REQ_DESC *sdesc, int ret);
+
+static inline bool prl_tg_req_ptr_size_check(size_t nbytes)
+{
+#if defined(CONFIG_X86_64) && defined(CONFIG_COMPAT)
+	if (prl_in_compat_syscall())
+		return nbytes == sizeof(compat_uptr_t);
 #endif
+	return nbytes == sizeof(void *);
+}
+
+#endif /* __PRL_TG_COMNON_H__ */

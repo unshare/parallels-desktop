@@ -17,18 +17,25 @@
 #include <linux/namei.h>
 #include <linux/cred.h>
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 40)) && \
+    (LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0))
+/* Fedora 15 uses 2.6.4x kernel version enumeration instead of 3.x */
+#define __MINOR_3X_LINUX_VERSION LINUX_VERSION_CODE - KERNEL_VERSION(2, 6, 40)
+#undef LINUX_VERSION_CODE
+#define LINUX_VERSION_CODE KERNEL_VERSION(3, MINOR_3X_LINUX_VERSION, 0)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0)
+typedef umode_t prl_umode_t;
+#else
+typedef int prl_umode_t;
+#endif
 
 extern struct file_operations prlfs_file_fops;
 extern struct file_operations prlfs_dir_fops;
 extern struct inode *prlfs_iget(struct super_block *sb, ino_t ino);
 
-static struct inode *prlfs_get_inode(struct super_block *sb,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
-			umode_t mode
-#else
-			int mode
-#endif
-);
+static struct inode *prlfs_get_inode(struct super_block *sb, prl_umode_t mode);
 struct dentry_operations prlfs_dentry_ops;
 
 #define PRLFS_UID_NOBODY  65534
@@ -49,13 +56,30 @@ unsigned long *prlfs_dfl( struct dentry *de)
 	return (unsigned long *)&(de->d_fsdata);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
+#define prl_uaccess_kernel() uaccess_kernel()
+#else
+#define prl_uaccess_kernel() segment_eq(get_fs(), KERNEL_DS)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+#define prlfs_user_ns (init_task.cred->user_ns)
+#define prlfs_setattr_copy(inode, attr) \
+		setattr_copy(prlfs_user_ns, inode, attr)
+#define prlfs_fillattr(inode, stat) \
+		generic_fillattr(prlfs_user_ns, inode, stat)
+#else
+#define prlfs_setattr_copy(inode, attr) setattr_copy(inode, attr)
+#define prlfs_fillattr(inode, stat) generic_fillattr(inode, stat)
+#endif
+
 void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
 			    unsigned long long len, int write, int user)
 {
 	bd->buf = buf;
 	bd->len = len;
 	bd->write = (write == 0) ? 0 : 1;
-	bd->user = (user == 0) ? 0 : segment_eq(get_fs(), USER_DS) ? 1 : 0;
+	bd->user = (user == 0) ? 0 : prl_uaccess_kernel() ? 0 : 1;
 	bd->flags = TG_REQ_COMMON;
 }
 
@@ -158,7 +182,7 @@ out:						\
 	DPRINTK("EXIT returning %d\n", ret);	\
 	return ret;
 
-static int prlfs_inode_open(struct dentry *dentry, int mode)
+static int prlfs_inode_open(struct dentry *dentry, prl_umode_t mode)
 {
 	struct prlfs_file_info pfi;
 	PRLFS_STD_INODE_HEAD(dentry)
@@ -264,7 +288,8 @@ static int attr_to_pattr(struct iattr *attr, struct prlfs_attr *pattr)
 	return ret;
 }
 
-static int prlfs_mknod(struct inode *dir, struct dentry *dentry, int mode)
+static int prlfs_mknod(struct inode *dir, struct dentry *dentry,
+                       prl_umode_t mode)
 {
 	struct inode * inode;
 	int ret;
@@ -281,18 +306,17 @@ static int prlfs_mknod(struct inode *dir, struct dentry *dentry, int mode)
         return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_create(struct user_namespace *mnt_userns,
+                        struct inode *dir, struct dentry *dentry,
+                        prl_umode_t mode, bool excl)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
 static int prlfs_create(struct inode *dir, struct dentry *dentry,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
-			umode_t mode
+                        prl_umode_t mode, bool excl)
 #else
-			int mode
+static int prlfs_create(struct inode *dir, struct dentry *dentry,
+                        prl_umode_t mode, struct nameidata *nd)
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
-			, bool excl
-#else
-			, struct nameidata *nd
-#endif
-	)
 {
 	int ret;
 
@@ -359,15 +383,15 @@ static int prlfs_unlink(struct inode *dir, struct dentry *dentry)
         return ret;
 }
 
-static int prlfs_mkdir(struct inode *dir, struct dentry *dentry,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
-			umode_t mode
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_mkdir(struct user_namespace *mnt_userns, struct inode *dir,
+                       struct dentry *dentry, prl_umode_t mode)
 #else
-			int mode
+static int prlfs_mkdir(struct inode *dir, struct dentry *dentry,
+                       prl_umode_t mode)
 #endif
-			)
 {
-        int ret;
+	int ret;
 
 	DPRINTK("ENTER\n");
 	ret = prlfs_inode_open(dentry, mode | S_IFDIR);
@@ -390,8 +414,8 @@ static int prlfs_rmdir(struct inode *dir, struct dentry *dentry)
         return ret;
 }
 
-static int prlfs_rename(struct inode *old_dir, struct dentry *old_de,
-			struct inode *new_dir, struct dentry *new_de)
+static int __prlfs_rename(struct inode *old_dir, struct dentry *old_de,
+                          struct inode *new_dir, struct dentry *new_de)
 {
 	void *np, *nbuf;
 	int nbuflen;
@@ -416,15 +440,26 @@ out_free_nbuf:
 	PRLFS_STD_INODE_TAIL
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
-static int prlfs_rename2(struct inode *old_dir, struct dentry *old_de,
-			struct inode *new_dir, struct dentry *new_de, unsigned int flags)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_rename(struct user_namespace *mnt_userns,
+                        struct inode *old_dir, struct dentry *old_de,
+                        struct inode *new_dir, struct dentry *new_de,
+                        unsigned int flags)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
+static int prlfs_rename(struct inode *old_dir, struct dentry *old_de,
+                        struct inode *new_dir, struct dentry *new_de,
+                        unsigned int flags)
+#else
+static int prlfs_rename(struct inode *old_dir, struct dentry *old_de,
+                        struct inode *new_dir, struct dentry *new_de)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
 	if (flags)
 		return -EINVAL;
-	return prlfs_rename(old_dir, old_de, new_dir, new_de);
-}
 #endif
+	return __prlfs_rename(old_dir, old_de, new_dir, new_de);
+}
 
 /*
  * FIXME: Move fs specific data to inode.
@@ -451,14 +486,19 @@ static int prlfs_inode_setattr(struct inode *inode, struct iattr *attr)
 			goto out;
 		truncate_setsize(inode, attr->ia_size);
 	}
-	setattr_copy(inode, attr);
+	prlfs_setattr_copy(inode, attr);
 	mark_inode_dirty(inode);
 out:
 #endif
 	return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_setattr(struct user_namespace *mnt_userns,
+                         struct dentry *dentry, struct iattr *attr)
+#else
 static int prlfs_setattr(struct dentry *dentry, struct iattr *attr)
+#endif
 {
 	struct prlfs_attr *pattr;
 	struct buffer_descriptor bd;
@@ -562,7 +602,7 @@ inline int __prlfs_getattr(struct dentry *dentry, struct kstat *stat)
 	if (ret < 0)
 		goto out;
 
-	generic_fillattr(dentry->d_inode, stat);
+	prlfs_fillattr(dentry->d_inode, stat);
 	if (PRLFS_SB(dentry->d_sb)->share) {
 		if (prlfs_uid_valid(stat->uid))
 			stat->uid = current->cred->fsuid;
@@ -574,7 +614,14 @@ out:
 	return ret;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_getattr(struct user_namespace *mnt_userns,
+                         const struct path *path, struct kstat *stat,
+                         u32 request_mask, unsigned int query_flags)
+{
+	return __prlfs_getattr(path->dentry, stat);
+}
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 static int prlfs_getattr(const struct path *path, struct kstat *stat,
 		u32 request_mask, unsigned int query_flags)
 {
@@ -588,41 +635,12 @@ static int prlfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 }
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,40)) && (LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0))
-/* Fedora 15 uses 2.6.4x kernel version enumeration instead of 3.x */
-#define MINOR_3X_LINUX_VERSION	LINUX_VERSION_CODE - KERNEL_VERSION(2,6,40)
-#define REAL_LINUX_VERSION_CODE	KERNEL_VERSION(3,MINOR_3X_LINUX_VERSION,0)
-#else
-#define REAL_LINUX_VERSION_CODE	LINUX_VERSION_CODE
-#endif
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 38)
-/* 2.6.27 ... 2.6.37 */
-static int prlfs_permission(struct inode *inode, int mask)
-#define prlfs_generic_permission() generic_permission(inode, mask, NULL)
-#elif REAL_LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)
-/* 2.6.38 ... 3.0 */
-static int prlfs_permission(struct inode *inode, int mask, unsigned int flags)
-#define prlfs_generic_permission() generic_permission(inode, mask, flags, NULL)
-#define PERMISSION_PRECHECK	(flags & IPERM_FLAG_RCU)
-#else
-/* 3.1 ... ? */
-static int prlfs_permission(struct inode *inode, int mask)
-#define prlfs_generic_permission() generic_permission(inode, mask)
-#define PERMISSION_PRECHECK	(mask & MAY_NOT_BLOCK)
-#endif
+static int __prlfs_permission(struct inode *inode, int mask)
 {
-	int isdir, mode;
-	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
+	int isdir;
+	prl_umode_t mode;
 
 	DPRINTK("ENTER\n");
-#ifdef PERMISSION_PRECHECK
-	if (PERMISSION_PRECHECK)
-		return -ECHILD;
-#endif
-
-	if (!sbi->share)
-		return prlfs_generic_permission();
 
 	mode = inode->i_mode;
 	isdir = S_ISDIR(mode);
@@ -650,6 +668,55 @@ static int prlfs_permission(struct inode *inode, int mask)
 	DPRINTK("EXIT returning EACCES\n");
 	return -EACCES;
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_permission(struct user_namespace *mnt_userns,
+                            struct inode *inode, int mask)
+{
+	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
+
+	if (mask & MAY_NOT_BLOCK)
+		return -ECHILD;
+	if (!sbi->share)
+		return generic_permission(prlfs_user_ns, inode, mask);
+
+	return __prlfs_permission(inode, mask);
+}
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+static int prlfs_permission(struct inode *inode, int mask)
+{
+	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
+
+	if (mask & MAY_NOT_BLOCK)
+		return -ECHILD;
+	if (!sbi->share)
+		return generic_permission(inode, mask);
+
+	return __prlfs_permission(inode, mask);
+}
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38)
+static int prlfs_permission(struct inode *inode, int mask, unsigned int flags)
+{
+	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
+
+	if (flags & IPERM_FLAG_RCU)
+		return -ECHILD;
+	if (!sbi->share)
+		return generic_permission(inode, mask, flags, NULL);
+
+	return __prlfs_permission(inode, mask);
+}
+#else
+static int prlfs_permission(struct inode *inode, int mask)
+{
+	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
+
+	if (!sbi->share)
+		return generic_permission(inode, mask, NULL);
+
+	return __prlfs_permission(inode, mask);
+}
+#endif
 
 static char *do_read_symlink(struct dentry *dentry)
 {
@@ -724,8 +791,14 @@ static void *prlfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 }
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_symlink(struct user_namespace *mnt_userns,
+                         struct inode *dir, struct dentry *dentry,
+                         const char *symname)
+#else
 static int prlfs_symlink(struct inode *dir, struct dentry *dentry,
                          const char *symname)
+#endif
 {
 	PRLFS_STD_INODE_HEAD(dentry)
 	DPRINTK("ENTER symname = '%s'\n", symname);
@@ -748,11 +821,7 @@ struct inode_operations prlfs_dir_iops = {
 	.unlink		= prlfs_unlink,
 	.mkdir		= prlfs_mkdir,
 	.rmdir		= prlfs_rmdir,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
-	.rename		= prlfs_rename2,
-#else
 	.rename		= prlfs_rename,
-#endif
 	.setattr	= prlfs_setattr,
 	.symlink	= prlfs_symlink,
 	.permission	= prlfs_permission,
@@ -870,13 +939,7 @@ struct inode_operations prlfs_root_iops = {
 #define prlfs_current_time(inode) CURRENT_TIME
 #endif
 
-static struct inode *prlfs_get_inode(struct super_block *sb,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
-			umode_t mode
-#else
-			int mode
-#endif
-			)
+static struct inode *prlfs_get_inode(struct super_block *sb, prl_umode_t mode)
 {
 	struct inode * inode;
 	struct prlfs_fd* pfd;

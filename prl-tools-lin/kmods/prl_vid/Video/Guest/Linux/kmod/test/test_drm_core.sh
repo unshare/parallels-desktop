@@ -146,8 +146,8 @@ int test(struct vm_operations_struct *op) {
 
 #	4.10 <= kernel
 T12_0="#include <linux/mm.h>
-void test(struct vm_fault *vmf) {
-	vmf->address = (unsigned long)0;
+unsigned long test(struct vm_fault *vmf) {
+	return vmf->address;
 }"
 
 #	4.11 <= kernel
@@ -225,14 +225,6 @@ int test(void) {
 }"
 
 #	kernel < 5.4
-T21_0=" struct dma_buf *test(void) {
-	return drm_gem_prime_export(
-		(struct drm_device *)NULL,			/* dev */
-		(struct drm_gem_object *)NULL,			/* obj */
-		(int)0);					/* flags */
-}"
-
-#	kernel < 5.4
 T22_0=" unsigned int test(unsigned int features) {
 	features |= DRIVER_PRIME;
 }"
@@ -255,6 +247,20 @@ T24_0="int test(struct drm_driver *drv) {
 T25_0="int test(void) {
 	return drm_fb_helper_single_add_all_connectors(
 		(struct drm_fb_helper *)NULL);
+}"
+
+#	5.11 <= kernel
+T26_0="#include <drm/drm_modeset_helper_vtables.h>
+int test(struct drm_crtc_helper_funcs *funcs) {
+	return funcs->atomic_check(
+		(struct drm_crtc *)NULL,
+		(struct drm_atomic_state *)NULL);
+}"
+
+#	kernel < 5.11
+T27_0="void test(struct drm_driver *drv) {
+	return drv->gem_free_object_unlocked(
+		(struct drm_gem_object *)NULL);
 }"
 
 tfunc() {
@@ -318,11 +324,12 @@ then
 	echo "-DPRL_DRM_FB_HELPER_FILL_INFO_X=$(tfunc T18)"
 	echo "-DPRL_DRM_DRIVER_UNLOAD_X=$(tfunc T19)"
 	echo "-DPRL_DRM_ATOMIC_HELPER_SHUTDOWN_X=$(tfunc T20)"
-	echo "-DPRL_DRM_PRIME_EXPORT_DEV=$(tfunc T21)"
 	echo "-DPRL_DRM_DRIVER_PRIME_DEFINED=$(tfunc T22)"
 	echo "-DPRL_DRM_MODE_VREFRESH_X=$(tfunc T23)"
 	echo "-DPRL_DRM_MASTER_SET=$(tfunc T24)"
 	echo "-DPRL_DRM_FB_HELPER_SINGLE_ADD_ALL_CONNECTORS=$(tfunc T25)"
+	echo "-DPRL_KMS_CRTC_ATOMIC_STATE_X=$(tfunc T26)"
+	echo "-DPRL_DRM_GEM_DRM_DRIVER_CALLS=$(tfunc T27)"
 else
 	echo "-DPRL_DRM_ENABLED=0"
 fi

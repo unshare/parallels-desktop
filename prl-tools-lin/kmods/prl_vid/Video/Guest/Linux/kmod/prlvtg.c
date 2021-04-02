@@ -383,7 +383,7 @@ static ssize_t prl_vtg_write(struct file *filp, const char __user *buf,
 	int ret = -EINVAL;
 
 	DPRINTK("ENTER\n");
-	if ((nbytes != sizeof(TG_REQUEST *)) && !PRL_32BIT_COMPAT_TEST)
+	if (!prl_tg_req_ptr_size_check(nbytes))
 		goto err;
 
 	/* read userspace pointer */
