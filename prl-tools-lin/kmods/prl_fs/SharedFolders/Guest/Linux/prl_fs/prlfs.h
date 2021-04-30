@@ -7,6 +7,21 @@
 #define __PRL_FS_H__
 
 #include <linux/version.h>
+#ifdef RHEL_RELEASE_CODE
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 2)
+#define PRLFS_RHEL_6_2_GE
+#endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)
+#define PRLFS_RHEL_7_3_GE
+#endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 1)
+#define PRLFS_RHEL_8_1_GE
+#endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 4)
+#define PRLFS_RHEL_8_4_GE
+#endif
+#endif
+
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/param.h>
@@ -25,7 +40,7 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,5,0)
 #include <linux/uidgid.h>
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) || defined(PRLFS_RHEL_8_4_GE)
 #include <uapi/linux/mount.h>
 #endif
 
@@ -36,19 +51,6 @@
 #include "Toolgate/Guest/Interfaces/tgreq.h"
 
 #define PRLFS_MAGIC	0x7C7C6673 /* "||fs" */
-
-
-#ifdef RHEL_RELEASE_CODE
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 2)
-#define PRLFS_RHEL_6_2_GE
-#endif
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)
-#define PRLFS_RHEL_7_3_GE
-#endif
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 1)
-#define PRLFS_RHEL_8_1_GE
-#endif
-#endif
 
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
