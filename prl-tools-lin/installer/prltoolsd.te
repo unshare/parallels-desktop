@@ -87,4 +87,3 @@ allow prltoolsd_t system_dbusd_t:dbus send_msg;
 allow prltoolsd_t system_dbusd_t:unix_stream_socket connectto;
 allow prltoolsd_t accountsd_t:dbus send_msg;
 allow systemd_logind_t prltoolsd_t:dbus send_msg;
-allow prltoolsd_t self:lockdown integrity;
