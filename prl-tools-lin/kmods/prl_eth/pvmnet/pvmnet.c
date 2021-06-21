@@ -408,7 +408,7 @@ static const struct net_device_ops pvmnet_netdev_ops = {
    .ndo_stop = pvmnet_close,
    .ndo_init = pvmnet_init,
    .ndo_uninit = pvmnet_free,
-#if REAL_LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)
    .ndo_set_multicast_list = pvmnet_set_multicast_list,
 #else
    .ndo_set_rx_mode = pvmnet_set_multicast_list,

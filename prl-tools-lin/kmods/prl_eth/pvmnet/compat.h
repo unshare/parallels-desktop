@@ -12,15 +12,6 @@
 
 #include <linux/version.h>
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,40)) && \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0))
-/* Fedora 15 uses 2.6.4x kernel version enumeration instead of 3.x */
-#define MINOR_3X_LINUX_VERSION LINUX_VERSION_CODE - KERNEL_VERSION(2,6,40)
-#define REAL_LINUX_VERSION_CODE	KERNEL_VERSION(3,MINOR_3X_LINUX_VERSION,0)
-#else
-#define REAL_LINUX_VERSION_CODE	LINUX_VERSION_CODE
-#endif
-
 #ifndef IRQF_SHARED
 #define IRQF_SHARED SA_SHIRQ
 #endif
