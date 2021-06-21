@@ -263,6 +263,14 @@ T27_0="void test(struct drm_driver *drv) {
 		(struct drm_gem_object *)NULL);
 }"
 
+#	5.13 <= kernel
+X1_0="#include <drm/drm_modeset_helper_vtables.h>
+int test(struct drm_plane_helper_funcs *funcs) {
+	return funcs->atomic_check(
+		(struct drm_plane *)NULL,
+		(struct drm_atomic_state *)NULL);
+}"
+
 shopt -s extglob
 trap 'rm -rf !("$(basename ${BASH_SOURCE[0]})") .[^.]*' EXIT
 
@@ -336,6 +344,7 @@ then
 	echo "-DPRL_DRM_FB_HELPER_SINGLE_ADD_ALL_CONNECTORS=$(tfunc T25)"
 	echo "-DPRL_KMS_CRTC_ATOMIC_STATE_X=$(tfunc T26)"
 	echo "-DPRL_DRM_GEM_DRM_DRIVER_CALLS=$(tfunc T27)"
+	echo "-DPRL_DRM_PLANE_ATOMIC_STATE_X=$(tfunc X1)"
 else
 	echo "-DPRL_DRM_ENABLED=0"
 fi

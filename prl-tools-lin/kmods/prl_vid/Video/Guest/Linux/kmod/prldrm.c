@@ -914,16 +914,17 @@ static const struct drm_mode_config_funcs prl_kms_funcs = {
 };
 
 // KMS: Plane
-static int prl_kms_atomic_check_plane_helper(struct drm_plane *plane, struct drm_plane_state *new_state)
+static int prl_kms_atomic_check_plane_helper(struct drm_plane *plane, struct PRL_PLANE_STATE_T *new_state)
 {
 	DRM_DEBUG_DRIVER(PFX_FMT PL_FB_FMT, PFX_ARG, PL_FB_ARG(plane));
 	return 0;
 }
 
-static void prl_kms_atomic_update_primary_plane_helper(struct drm_plane *plane, struct drm_plane_state *old_state)
+static void prl_kms_atomic_update_primary_plane_helper(struct drm_plane *plane, struct PRL_PLANE_STATE_T *old_state_x)
 {
 	struct drm_device *dev = (struct drm_device*)plane->dev;
 	struct prl_framebuffer *prl_fb = (struct prl_framebuffer *)plane->state->fb;
+	struct drm_plane_state *old_state = PRL_GET_OLD_PLANE_STATE(old_state_x, plane);
 	struct drm_crtc *crtc = plane->state->crtc ? plane->state->crtc : old_state->crtc;
 	struct prl_drm_head *prl_head = (struct prl_drm_head*)crtc;
 
@@ -951,9 +952,10 @@ static void prl_kms_atomic_update_primary_plane_helper(struct drm_plane *plane, 
 	}
 }
 
-static void prl_kms_atomic_update_cursor_plane_helper(struct drm_plane *plane, struct drm_plane_state *old_state)
+static void prl_kms_atomic_update_cursor_plane_helper(struct drm_plane *plane, struct PRL_PLANE_STATE_T *old_state_x)
 {
 	struct drm_plane_state *state = plane->state;
+	struct drm_plane_state *old_state = PRL_GET_OLD_PLANE_STATE(old_state_x, plane);
 	struct drm_device *dev = plane->dev;
 	struct prl_drm_device *prl_dev = (struct prl_drm_device*)dev->dev_private;
 
