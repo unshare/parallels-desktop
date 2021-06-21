@@ -414,12 +414,13 @@ static const struct net_device_ops pvmnet_netdev_ops = {
    .ndo_set_rx_mode = pvmnet_set_multicast_list,
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
 #ifdef RHEL_RELEASE_CODE
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 5) && \
-    RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8, 0)
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 5)
 	.extended.ndo_change_mtu = eth_change_mtu,
 #else
 	.ndo_change_mtu = eth_change_mtu,
+#endif
 #endif
 #endif
 };
