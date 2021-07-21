@@ -38,6 +38,10 @@ case "$(uname -m)" in
 		FLAG_CHECK_GUI="Yes"
 		exec "$INSTALLER_DIR/installer.x86_32"
 		;;
+	aarch64)
+		FLAG_CHECK_GUI="Yes"
+		exec "$INSTALLER_DIR/installer.aarch64"
+		;;
 	*)
 		echo "Arhitecture $(uname -m) is not supported" >&2
 		exit 103
