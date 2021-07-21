@@ -390,13 +390,13 @@ enum {
 	GET_SF_FEATURES = 2,
 };
 
-#ifndef PAGE_SIZE
-#define PAGE_SIZE 4096
+#ifndef PAGE_SIZE_4K
+#define PAGE_SIZE_4K 4096
 #endif
 
 struct prlfs_sf_response {
 	unsigned char ret;
-	char buf[PAGE_SIZE-1];
+	char buf[PAGE_SIZE_4K-1];
 };
 
 enum {

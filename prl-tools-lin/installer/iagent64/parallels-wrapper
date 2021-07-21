@@ -22,9 +22,14 @@ prl_sdk_lib=$(ls "$prl_libs_dir" | grep '^libprl_sdk\.so\.[[:digit:]]\+' | sort 
 prl_binary_arch() {
 	# Analyze ELF header.
 	elf=$(od "${1}" -An -N 5 -t x1 2>/dev/null)
-	if [ "x$elf" = "x 7f 45 4c 46 02" ];
+	arch=$(od "${1}" -An -j 18 -N 2 -t x1 2>/dev/null)
+	if [ "x$elf" = "x 7f 45 4c 46 02" -a "x$arch" = "x 3e 00" ];
 	then
 		echo "x86_64"
+		return 0
+	elif [ "x$elf" = "x 7f 45 4c 46 02" -a "x$arch" = "x b7 00" ];
+	then
+		echo "arm64"
 		return 0
 	elif [ "x$elf" = "x 7f 45 4c 46 01" ];
 	then

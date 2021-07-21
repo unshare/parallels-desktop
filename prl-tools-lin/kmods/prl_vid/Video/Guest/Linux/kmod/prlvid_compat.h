@@ -151,3 +151,9 @@
 #else
 	#define PRL_CRTC_STATE_T drm_crtc_state
 #endif
+
+#if (PRL_DRM_PLANE_HELPER_CALLS_X == 1)
+	#define PRL_PLANE_STATE_T drm_atomic_state
+#else
+	#define PRL_PLANE_STATE_T drm_plane_state
+#endif

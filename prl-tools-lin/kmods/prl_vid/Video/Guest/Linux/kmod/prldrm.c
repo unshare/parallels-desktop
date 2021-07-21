@@ -914,17 +914,21 @@ static const struct drm_mode_config_funcs prl_kms_funcs = {
 };
 
 // KMS: Plane
-static int prl_kms_atomic_check_plane_helper(struct drm_plane *plane, struct drm_plane_state *new_state)
+static int prl_kms_atomic_check_plane_helper(struct drm_plane *plane, struct PRL_PLANE_STATE_T *new_state)
 {
 	DRM_DEBUG_DRIVER(PFX_FMT PL_FB_FMT, PFX_ARG, PL_FB_ARG(plane));
 	return 0;
 }
 
-static void prl_kms_atomic_update_primary_plane_helper(struct drm_plane *plane, struct drm_plane_state *old_state)
+static void prl_kms_atomic_update_primary_plane_helper(struct drm_plane *plane, struct PRL_PLANE_STATE_T *old_state)
 {
 	struct drm_device *dev = (struct drm_device*)plane->dev;
 	struct prl_framebuffer *prl_fb = (struct prl_framebuffer *)plane->state->fb;
+#if (PRL_DRM_PLANE_HELPER_CALLS_X == 1)
+	struct drm_crtc *crtc = plane->state->crtc ? plane->state->crtc : old_state->planes->old_state->crtc;
+#else
 	struct drm_crtc *crtc = plane->state->crtc ? plane->state->crtc : old_state->crtc;
+#endif
 	struct prl_drm_head *prl_head = (struct prl_drm_head*)crtc;
 
 	DRM_DEBUG_DRIVER(PFX_FMT " " CR_FMT " " FB_GO_FMT " display(%d x %d) total(%d x %d)",
@@ -951,11 +955,16 @@ static void prl_kms_atomic_update_primary_plane_helper(struct drm_plane *plane, 
 	}
 }
 
-static void prl_kms_atomic_update_cursor_plane_helper(struct drm_plane *plane, struct drm_plane_state *old_state)
+static void prl_kms_atomic_update_cursor_plane_helper(struct drm_plane *plane, struct PRL_PLANE_STATE_T *prev_state)
 {
 	struct drm_plane_state *state = plane->state;
 	struct drm_device *dev = plane->dev;
 	struct prl_drm_device *prl_dev = (struct prl_drm_device*)dev->dev_private;
+#if (PRL_DRM_PLANE_HELPER_CALLS_X == 1)
+	struct drm_plane_state *old_state = prev_state->planes->old_state;
+#else
+	struct drm_plane_state *old_state = prev_state;
+#endif
 
 	DRM_DEBUG_DRIVER(PFX_FMT " " CR_FMT " CURSOR: (%d, %d, %u, %u, %p) -> (%d, %d, %u, %u, %p)",
 		PFX_ARG, CR_ARG(plane->crtc),
@@ -2398,6 +2407,31 @@ exit:
 	return ret;
 }
 
+static int prl_drm_get_dumb_params_ioctl(struct drm_device *dev, void *data, struct drm_file *file)
+{
+	struct prl_drm_device *prl_dev = (struct prl_drm_device*)dev->dev_private;
+	struct dumb_params_desc *desc = (struct dumb_params_desc *)data;
+	struct prl_gem_object *prl_go = (struct prl_gem_object*)drm_gem_object_lookup(file, desc->handle);
+	int ret = -EINVAL;
+	(void)prl_dev;
+
+	if (!prl_go) {
+		DRM_INFO(PFX_FMT "object lookup for GEM:%d failed!", PFX_ARG, desc->handle);
+
+		ret = -ENOENT;
+	}
+	else {
+		desc->aperture_addr = prl_go->aperture_addr;
+
+		ret = 0;
+
+		drm_gem_object_put_unlocked_X(&prl_go->base);
+	}
+
+	DRM_DEBUG_DRIVER(PFX_FMT " GEM:%u - OUT:%d", PFX_ARG, desc->handle, ret);
+	return ret;
+}
+
 #define PRL_DRM_IOCTL_DEF(ioctl, func, flags) \
 	[DRM_IOCTL_NR(ioctl##_IOCTL) - DRM_COMMAND_BASE] = { ioctl##_IOCTL, flags, func }
 
@@ -2434,6 +2468,9 @@ exit:
 #define PRL_DRM_IMAGE_RELEASE_IOCTL \
 	DRM_IOW(DRM_COMMAND_BASE + PRL_DRM_IMAGE_RELEASE, \
 	unsigned int)
+#define PRL_DRM_GET_DUMB_PARAMS_IOCTL \
+	DRM_IOWR(DRM_COMMAND_BASE + PRL_DRM_GET_DUMB_PARAMS, \
+	struct dumb_params_desc)
 
 static const struct drm_ioctl_desc prl_drm_ioctls[] = {
 	PRL_DRM_IOCTL_DEF(PRL_DRM_CREATE_DRAWABLE, prl_drm_create_drawable_ioctl,
@@ -2455,6 +2492,8 @@ static const struct drm_ioctl_desc prl_drm_ioctls[] = {
 	PRL_DRM_IOCTL_DEF(PRL_DRM_IMAGE_CREATE, prl_drm_image_create_ioctl,
 		DRM_RENDER_ALLOW),
 	PRL_DRM_IOCTL_DEF(PRL_DRM_IMAGE_RELEASE, prl_drm_image_release_ioctl,
+		DRM_RENDER_ALLOW),
+	PRL_DRM_IOCTL_DEF(PRL_DRM_GET_DUMB_PARAMS, prl_drm_get_dumb_params_ioctl,
 		DRM_RENDER_ALLOW)
 };
 
@@ -2527,8 +2566,13 @@ int prl_drm_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	int ret = 0;
 	struct drm_device *dev = NULL;
 	struct prl_drm_device *prl_dev = NULL;
+	struct tg_dev *prl_tg_dev = kmalloc(sizeof(struct tg_dev), GFP_KERNEL);
+	assert(prl_tg_dev != NULL);
 
-	ret = prl_tg_probe_common(pdev, VIDEO_DRM_TOOLGATE, NULL);
+	prl_tg_dev->pci_dev = pdev;
+	pci_set_drvdata(pdev, prl_tg_dev);
+
+	ret = prl_tg_probe_common(prl_tg_dev, VIDEO_DRM_TOOLGATE, NULL);
 	if (unlikely(ret != 0))
 		return ret;
 
@@ -2623,6 +2667,7 @@ void prl_drm_remove(struct pci_dev *pdev)
 	kfree(prl_dev);
 
 	prl_tg_remove_common(prl_tg);
+	kfree(prl_tg);
 	pci_set_drvdata(pdev, NULL);
 }
 

@@ -50,12 +50,21 @@ if [ -r "$INSTALL_DIR/version" ]; then
 fi
 INSTALL_FULL_PRODUCT_VERSION=$(cat "$BASE_DIR/version")
 
+ARCH=$(uname -m)
+
 # Kernel modules to be installed
-KMODS_PATHS="prl_eth/pvmnet \
-	prl_tg/Toolgate/Guest/Linux/prl_tg \
-	prl_vid/Video/Guest/Linux/kmod \
-	prl_fs/SharedFolders/Guest/Linux/prl_fs\
-	prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze"
+if [ "$ARCH" = "aarch64" ]; then
+	KMODS_PATHS="prl_fs/SharedFolders/Guest/Linux/prl_fs\
+		prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze\
+		prl_tg/Toolgate/Guest/Linux/prl_tg\
+		prl_notifier/Installation/lnx/prl_notifier"
+else
+	KMODS_PATHS="prl_eth/pvmnet \
+		prl_vid/Video/Guest/Linux/kmod \
+		prl_fs/SharedFolders/Guest/Linux/prl_fs\
+		prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze\
+		prl_tg/Toolgate/Guest/Linux/prl_tg"
+fi
 
 UPDATE_MODE=0
 RESTORE_ON_FAIL=0
@@ -70,11 +79,13 @@ TOOLS_BACKUP="$IBACKUP_DIR/.tools.list"
 PSF_BACKUP="$IBACKUP_DIR/.psf"
 SLP_BACKUP="$IBACKUP_DIR/.${SLP_NAME}.selinux"
 
+TOOLS_BIN_DIR_ARM64="$INSTALL_DIR_TOOLS/tools-arm64"
 TOOLS_BIN_DIR_64="$INSTALL_DIR_TOOLS/tools64"
 TOOLS_BIN_DIR_32="$INSTALL_DIR_TOOLS/tools32"
-ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
 	TOOLS_BIN_DIR="$TOOLS_BIN_DIR_64"
+elif [ "$ARCH" = "aarch64" ]; then
+	TOOLS_BIN_DIR="$TOOLS_BIN_DIR_ARM64"
 else
 	TOOLS_BIN_DIR="$TOOLS_BIN_DIR_32"
 fi
@@ -214,6 +225,7 @@ check_x_server_supported() {
 
 	local tools_bin_dir="${TOOLS_DIR}/tools32"
 	[ "$ARCH" = "x86_64" ] && tools_bin_dir="${TOOLS_DIR}/tools64"
+	[ "$ARCH" = "aarch64" ] && tools_bin_dir="${TOOLS_DIR}/tools-arm64"
 	"$DETECT_X_SERVER" -dsrc "$tools_bin_dir" >/dev/null 2>&1
 	rc=$?
 	[ $rc -ne 0 ] && perror "Error: Xorg version $XVERSION not supported"
@@ -421,7 +433,11 @@ install_kernel_modules() {
 	install_kmods_src || return $?
 	install_kmods_dkms
 
-	modprobe prl_tg
+	modprobe prl_tg || return $?
+	[ $REBOOT_REQUIRED -eq 0 ] && [ ! -f /proc/driver/prl_tg ] && REBOOT_REQUIRED=1
+	if [ "$ARCH" = "aarch64" ]; then
+		modprobe prl_notifier
+	fi
 }
 
 # Tools modules installation
@@ -916,9 +932,15 @@ install_selinux_module() {
 
 src_prl_bin_path() {
 	local arch=$1
-	[ "$arch" = 'x86_64' ] &&
-		echo "$TOOLS_BIN_DIR_64" ||
-		echo "$TOOLS_BIN_DIR_32"
+	if [ "$arch" = 'x86_64' ]; then
+		echo "$TOOLS_BIN_DIR_64"
+		return
+	fi
+	if [ "$arch" = 'aarch64' ]; then
+		echo "$TOOLS_BIN_DIR_ARM64"
+		return
+	fi
+	echo "$TOOLS_BIN_DIR_32"
 }
 
 get_lib_path() {
@@ -928,8 +950,17 @@ get_lib_path() {
 
 get_lib_arch() {
 	local ld_entry=$1
-	echo "$ld_entry" | grep -q ' \(.*x86-64.*\) =>' &&
-		echo 'x86_64' || echo 'i386'
+	echo "$ld_entry" | grep -q ' \(.*x86-64.*\) =>'
+	if [ $? -eq 0 ]; then
+		echo 'x86_64'
+		return
+	fi
+	echo "$ld_entry" | grep -q ' \(.*AArch64.*\) =>'
+	if [ $? -eq 0 ]; then
+		echo 'aarch64'
+		return
+	fi
+	echo 'i386'
 }
 
 get_ld_entries() {
@@ -975,7 +1006,7 @@ install_gl_libs() {
 }
 
 install_compiz_plugin() {
-	if [ "$ARCH" = "x86_64" ] && [ -d "/usr/lib64" ]; then
+	if [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ] && [ -d "/usr/lib64" ]; then
 		local compizdir_target="/usr/lib64/compiz"
 	else
 		local compizdir_target="/usr/lib/compiz"
@@ -1069,6 +1100,8 @@ install_and_configure_x() {
 	local xconf=$(find_xorgconf)
 	if [[ $UPDATE_MODE -eq 1 ]] && check_xconf_patched "$xconf"; then
 		tell_user "X server configuration was skipped"
+	elif [ "$ARCH" = 'aarch64' ]; then
+		tell_user "Temporary skip X server configuration for ARM architecture"
 	else
 		configure_x_server "$xconf"
 		local result=$?
@@ -1283,7 +1316,9 @@ install_tools_modules() {
 		install_file "$toolsd_hibernate" "/etc/pm/sleep.d/99prltoolsd-hibernate"
 	fi
 
-	install_video_rules
+	if [ "$ARCH" != "aarch64" ]; then
+		install_video_rules
+	fi
 
 	install_ptiagent_starters
 
@@ -1315,8 +1350,10 @@ remove_gt() {
 	PSF_BACKUP="$BACKUP_DIR/.psf"
 	SLP_BACKUP="$BACKUP_DIR/.${SLP_NAME}.selinux"
 
-	rm -f "$MODPROBED_DIR/blacklist-parallels.conf"
-	rm -f "$MODPROBED_DIR/blacklist-parallels"
+	if [ "$ARCH" != "aarch64" ]; then
+		rm -f "$MODPROBED_DIR/blacklist-parallels.conf"
+		rm -f "$MODPROBED_DIR/blacklist-parallels"
+	fi
 	rm -f "$MODPROBE_PRL_ETH_CONF"
 	if [ -f "$MODPROBE_CONF" ]; then
 		cmds="$ALIAS_NE2K_OFF:$ALIAS_NE2K_OVERRIDE"
@@ -1374,6 +1411,7 @@ istatus() {
 	[ -n "$ISTATUS_DIR" ] && istatus_dir=$ISTATUS_DIR
 	local arch_suffix=32
 	[ "$ARCH" = 'x86_64' ] && arch_suffix=64
+	[ "$ARCH" = 'aarch64' ] && arch_suffix='-arm64'
 	local istatus_cmd=$istatus_dir/prl_istatus$arch_suffix
 
 	"$istatus_cmd" "$argument" "$version" ||
@@ -1388,7 +1426,7 @@ remove_guest_tools() {
 	# Special kludge to store prl_istatus binary temporarily if we are calling
 	# uninstaller "in place".
 	local tmp_istatus=$(mktemp -d -t prlistatus-XXXXXX)
-	cp "$INSTALLER_DIR"/prl_istatus{32,64} "$tmp_istatus"
+	cp "$INSTALLER_DIR"/prl_istatus{32,64,'-arm64'} "$tmp_istatus"
 
 	remove_gt -f
 	result=$?
@@ -1435,13 +1473,20 @@ update_initramfs() {
 	if type dracut >/dev/null 2>&1 && [ -d "$dracut_conf_dir" ]; then
 		local dracut_conf_file="${dracut_conf_dir}/parallels-tools.conf"
 		if [ "$1" = '--install' ]; then
-			echo 'add_drivers+=" prl_tg prl_vid prl_eth "' >"$dracut_conf_file"
+			if [ "$ARCH" = "aarch64" ]; then
+				echo 'add_drivers+=" prl_tg "' >"$dracut_conf_file"
+			else
+				echo 'add_drivers+=" prl_tg prl_vid prl_eth "' >"$dracut_conf_file"
+			fi
 			echo 'omit_drivers+=" prl_fs prl_fs_freeze "' >>"$dracut_conf_file"
 			dracut -f --regenerate-all
 		else
 			rm -f "$dracut_conf_file"
-			dracut -f --regenerate-all \
-					--omit-drivers 'prl_fs prl_fs_freeze prl_eth prl_vid prl_tg'
+			local omited_drvs='prl_fs prl_fs_freeze prl_tg'
+			if [ "$ARCH" != "aarch64" ]; then
+				omited_drvs="prl_eth prl_vid ${omited_drvs}"
+			fi
+			dracut -f --regenerate-all --omit-drivers "$omited_drvs"
 		fi
 
 	# Debian-based
@@ -1538,7 +1583,9 @@ install_guest_tools() {
 
 	# Install blacklist and override ne2k-pci by our prl_eth
 	if [ -d "$MODPROBED_DIR" ]; then
-		cp -f "$INSTALLER_DIR/blacklist-parallels.conf" "$MODPROBED_DIR"
+		if [ "$ARCH" != "aarch64" ]; then
+			cp -f "$INSTALLER_DIR/blacklist-parallels.conf" "$MODPROBED_DIR"
+		fi
 		echo "$ALIAS_NE2K_OVERRIDE" > "$MODPROBE_PRL_ETH_CONF"
 	elif [ -f "$MODPROBE_CONF" ]; then
 		echo "$ALIAS_NE2K_OVERRIDE" >> "$MODPROBE_CONF"
@@ -1583,13 +1630,19 @@ install_ptiagent() {
 
 	local tgt_installer_dir="${INSTALL_DIR}/installer"
 	mkdir -p "$tgt_installer_dir"
-	cp -fR "${INSTALLER_DIR}/ptiagent32" "$tgt_installer_dir"
-	cp -fR "${INSTALLER_DIR}/ptiagent64" "$tgt_installer_dir"
-	cp -fR "${INSTALLER_DIR}/ptiagent32-cmd" "$tgt_installer_dir"
-	cp -fR "${INSTALLER_DIR}/ptiagent64-cmd" "$tgt_installer_dir"
+	if [ "$ARCH" != "aarch64" ]; then
+		cp -fR "${INSTALLER_DIR}/ptiagent32" "$tgt_installer_dir"
+		cp -fR "${INSTALLER_DIR}/ptiagent64" "$tgt_installer_dir"
+		cp -fR "${INSTALLER_DIR}/ptiagent32-cmd" "$tgt_installer_dir"
+		cp -fR "${INSTALLER_DIR}/ptiagent64-cmd" "$tgt_installer_dir"
+		cp -fR "${INSTALLER_DIR}/iagent32" "$tgt_installer_dir"
+		cp -fR "${INSTALLER_DIR}/iagent64" "$tgt_installer_dir"
+	else
+		cp -fR "${INSTALLER_DIR}/ptiagent-arm64" "$tgt_installer_dir"
+		cp -fR "${INSTALLER_DIR}/ptiagent-arm64-cmd" "$tgt_installer_dir"
+		cp -fR "${INSTALLER_DIR}/iagent-arm64" "$tgt_installer_dir"
+	fi
 	cp -f "${INSTALLER_DIR}/ptiagent-cmd" "$tgt_installer_dir"
-	cp -fR "${INSTALLER_DIR}/iagent32" "$tgt_installer_dir"
-	cp -fR "${INSTALLER_DIR}/iagent64" "$tgt_installer_dir"
 	cp -f "${INSTALLER_DIR}/ptiagent-wrapper.sh" "$tgt_installer_dir"
 
 	mkdir -p "$INSTALL_DIR_TOOLS"
@@ -1602,7 +1655,7 @@ install_ptiagent() {
 	install_kmods_src
 }
 
-is_reboot_required() {
+is_xserver_detected() {
 	"$INSTALLER_DIR/detect-xserver.sh" -v >/dev/null 2>&1
 	[ $? -eq $E_NOERROR ]
 }
@@ -1755,7 +1808,7 @@ install_x_tools_modules() {
 
 # Install, upgrade or remove Guest Tools
 
-is_reboot_required && REBOOT_REQUIRED=1
+is_xserver_detected && REBOOT_REQUIRED=1
 
 if [ $# -eq 0 ]; then
 	perror "Error: wrong number of input parameters [$#]"

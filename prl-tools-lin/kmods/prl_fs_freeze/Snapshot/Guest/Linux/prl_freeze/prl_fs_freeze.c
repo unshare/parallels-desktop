@@ -356,6 +356,7 @@ static struct proc_ops freeze_ops = PRLFS_FREEZE_PROC_OPS_INIT(
 int __init init_module(void)
 {
 	struct proc_dir_entry *entry;
+
 	entry = prlfs_freeze_proc_create("driver/prl_freeze", S_IFREG | 0664, NULL,
 		&freeze_ops);
 	if (!entry)

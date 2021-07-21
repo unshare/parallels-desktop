@@ -6,7 +6,9 @@
 # All rights reserved.
 # http://www.parallels.com
 
-GL_STORAGE_DIR='/var/lib/parallels-tools/GL'
+PRL_TOOLS_VARLIB='/var/lib/parallels-tools'
+GL_STORAGE_DIR="${PRL_TOOLS_VARLIB}/GL"
+PRL_TOOLS_INSTALL_LIST="${PRL_TOOLS_VARLIB}/.backup/.tools.list"
 PRL_TOOLS_DIR='/usr/lib/parallels-tools'
 PRL_VER_FILE="${PRL_TOOLS_DIR}/version"
 DETECT_XSERVER="${PRL_TOOLS_DIR}/installer/detect-xserver.sh"
@@ -24,6 +26,13 @@ install_lib() {
 	local src=$1
 	local dst=$2
 	ln -f "$src" "$dst" 2>/dev/null || cp -aPf "$src" "$dst"
+}
+
+install_lib_record() {
+	local src=$1
+	local dst=$2
+	ln -f "$src" "$dst" 2>/dev/null || cp -aPf "$src" "$dst" || return 1
+	echo "$dst" >>"$PRL_TOOLS_INSTALL_LIST"
 }
 
 store_lib() {
@@ -107,6 +116,17 @@ get_lib_path() {
 	echo "$ld_entry" | sed 's/^.*=> \(.*\)$/\1/'
 }
 
+skip_ld_entry() {
+	local ld_entries=$1
+	local lib_arch=$2
+
+	for ld_entry in $ld_entries; do
+		local ld_entry_arch=`get_lib_arch "$ld_entry"`
+		[ "$ld_entry_arch" = "$lib_arch" ] && return 0
+	done
+	return 1
+}
+
 enable_lib() {
 	local lib_name=$1
 
@@ -154,24 +174,56 @@ enable_lib() {
 	return 0
 }
 
-enable_libgbm() {
-	local lib_name='libgbm.so.1'
+install_libgl_dep() {
+	local lib_name="$1"
 	local ld_entries=`get_ld_entries "$lib_name"`
-	if [ -n "$ld_entries" ]; then
-		enable_lib "$lib_name"
-		return $?
-	fi
 
-	ld_entries=`get_ld_entries 'libGL.so.1'`
-	IFS=$'\n'
-	for ld_entry in $ld_entries; do
-		local lib_arch=`get_lib_arch "$ld_entry"`
-		local lib_echo="${lib_name} (${lib_arch})"
+	local gl_ld_entries=`get_ld_entries 'libGL.so.1'`
+	for gl_ld_entry in $gl_ld_entries; do
+		local gl_lib_arch=`get_lib_arch "$gl_ld_entry"`
 
-		local lib_path=`get_lib_path "$ld_entry"`
+		skip_ld_entry "$ld_entries" "$gl_lib_arch" && continue
+
+		local lib_echo="${lib_name} (${gl_lib_arch})"
+		local lib_path=`get_lib_path "$gl_ld_entry"`
 		lib_path="${lib_path%/*}/${lib_name}"
 
-		local lib_src=`src_prl_bin_path "$lib_arch"`
+		local lib_src=`src_prl_bin_path "$gl_lib_arch"`
+		if [ -z "$lib_src" ]; then
+			echo "Error: not able to set up ${lib_echo}."
+			return 1
+		fi
+		lib_src="${lib_src}/lib/${lib_name}.0.0"
+
+		echo "Installing ${lib_echo}..."
+		install_lib_record "$lib_src" "$lib_path"
+		if [ $? -ne 0 ]; then
+			echo "Error: failed to write ${lib_echo}"
+			return 1
+		fi
+	done
+}
+
+enable_libgbm() {
+	local lib_name='libgbm.so.1'
+	local gbm_ld_entries=`get_ld_entries "$lib_name"`
+	if [ -n "$gbm_ld_entries" ]; then
+		enable_lib "$lib_name"
+	fi
+
+	local gl_ld_entries=`get_ld_entries 'libGL.so.1'`
+	IFS=$'\n'
+	for gl_ld_entry in $gl_ld_entries; do
+		local gl_lib_arch=`get_lib_arch "$gl_ld_entry"`
+		local lib_echo="${lib_name} (${gl_lib_arch})"
+
+		# Check if we've installed libgbm.so.1 for this arch already
+		skip_ld_entry "$gbm_ld_entries" "$gl_lib_arch" && continue
+
+		local lib_path=`get_lib_path "$gl_ld_entry"`
+		lib_path="${lib_path%/*}/${lib_name}"
+
+		local lib_src=`src_prl_bin_path "$gl_lib_arch"`
 		if [ -z "$lib_src" ]; then
 			echo "Error: not able to set up Parallels-provided ${lib_echo}."
 			return 1
@@ -443,6 +495,8 @@ enable_prl_gl() {
 	check_prl_tools
 	cleanup_broken_switches
 	enable_lib 'libGL.so.1' &&
+		install_libgl_dep 'libPrlDRI.so.1' &&
+		install_libgl_dep 'libPrlWl.so.1' &&
 		enable_glx &&
 		enable_libgbm &&
 		if [ "$1" = "--egl" ]; then enable_lib 'libEGL.so.1'; fi

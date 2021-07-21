@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 1999-2019 Parallels International GmbH. All Rights Reserved.
+ * Copyright (C) 1999-2021 Parallels International GmbH. All Rights Reserved.
  */
 
 #include <linux/module.h>
@@ -10,6 +10,12 @@
 #include <linux/proc_fs.h>
 #include <linux/hash.h>
 #include <linux/delay.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
+#include <asm-generic/pci_iomap.h>
+#else
+#include <asm-generic/iomap.h>
+#endif
 #include "prltg_common.h"
 #include "prltg_compat.h"
 #include "prltg_call.h"
@@ -35,8 +41,8 @@ static struct {
 };
 
 static struct pci_device_id prl_tg_pci_tbl[] = {
-	{0x1ab8, 0x4000, PCI_ANY_ID, PCI_ANY_ID, 0, 0, TOOLGATE },
-	{0,}
+	{ 0x1ab8, 0x4000, PCI_ANY_ID, PCI_ANY_ID, 0, 0, TOOLGATE },
+	{ 0, }
 };
 MODULE_DEVICE_TABLE (pci, prl_tg_pci_tbl);
 
@@ -291,6 +297,7 @@ static irqreturn_t prl_tg_interrupt(int irq, void *dev_instance)
 
 	if (!(dev->flags & TG_DEV_FLAG_MSI))
 		status = tg_in32(dev, TG_PORT_STATUS);
+
 	if (status) {
 		/* if it is toolgate's interrupt schedule bottom half */
 		ret = 1;
@@ -317,13 +324,22 @@ static int prl_tg_initialize(struct tg_dev *dev)
 	io_bar = PRL_IO_BAR(pdev);
 	rc = -ENODEV;
 	/* make sure PCI base addr 0 is PIO */
+#if defined(__aarch64__)
+	/* For ARM Toolgate we use MMIO as control region */
+	if (!(pci_resource_flags(pdev, io_bar) & IORESOURCE_MEM)) {
+#else
 	if (!(pci_resource_flags(pdev, io_bar) & IORESOURCE_IO)) {
+#endif
 		printk(KERN_ERR PFX "region #%d not a PIO resource\n", io_bar);
 		goto err_out;
 	}
 
 	/* check for weird/broken PCI region reporting */
+#if defined(__aarch64__)
+	if (pci_resource_len(pdev, io_bar) < TG_MAX_MEM) {
+#else
 	if (pci_resource_len(pdev, io_bar) < TG_MAX_PORT) {
+#endif
 		printk(KERN_ERR PFX "Invalid PCI region size(s)\n");
 		goto err_out;
 	}
@@ -364,13 +380,13 @@ static int prl_tg_initialize(struct tg_dev *dev)
 		goto err_out;
 	}
 
-	rc = pci_request_region(pdev, PRL_IO_BAR(pdev), board_info[dev->board].nick);
+	rc = pci_request_region(pdev, io_bar, board_info[dev->board].nick);
 	if (rc) {
 		printk(KERN_ERR PFX "could not reserve PCI I/O and memory resources\n");
 		goto err_out;
 	}
 
-	dev->base_addr = pci_resource_start(pdev, io_bar);
+	dev->base_addr = pci_iomap(pdev, io_bar, 0);
 
 	tg_out32(dev, TG_PORT_CAPS, 0);
 	if (tg_in32(dev, TG_PORT_CAPS) != FOURCC('O', 'U', 'T', 'D'))
@@ -412,14 +428,10 @@ prltg_proc_create_data(char *name, umode_t mode, struct proc_dir_entry *parent,
 #endif
 }
 
-int prl_tg_probe_common(struct pci_dev *pdev, board_t board,
+int prl_tg_probe_common(struct tg_dev *dev, board_t board,
                         struct proc_ops *proc_ops)
 {
-	struct tg_dev *dev;
 	int rc = -ENOMEM;
-	dev = kmalloc(sizeof(struct tg_dev), GFP_KERNEL);
-	if (!dev)
-		goto out;
 	dev->flags = 0;
 #ifdef PRLVTG_MMAP
 	dev->mem_phys = 0;
@@ -428,7 +440,6 @@ int prl_tg_probe_common(struct pci_dev *pdev, board_t board,
 	spin_lock_init(&dev->lock);
 	spin_lock_init(&dev->queue_lock);
 	INIT_LIST_HEAD(&dev->pr_list);
-	dev->pci_dev = pdev;
 	dev->board = board;
 
 	/* masks interrupts on the device probing */
@@ -444,8 +455,6 @@ int prl_tg_probe_common(struct pci_dev *pdev, board_t board,
 		kfree(dev);
 		goto out;
 	}
-
-	pci_set_drvdata(pdev, dev);
 
 	INIT_WORK(&dev->work, tg_do_work);
 
@@ -508,35 +517,14 @@ void prl_tg_remove_common(struct tg_dev *dev)
 	}
 
 	prl_tg_deinitialize(dev);
-	kfree(dev);
 }
 EXPORT_SYMBOL(prl_tg_remove_common);
-
-static void prl_tg_remove(struct pci_dev *pdev)
-{
-	prl_tg_remove_common(pci_get_drvdata(pdev));
-	pci_set_drvdata(pdev, NULL);
-}
 
 static struct proc_ops prl_tg_ops = PRLTG_PROC_OPS_INIT(
 		prl_tg_open,
 		prl_tg_write,
 		NULL, NULL,
 		prl_tg_release);
-
-static int prl_tg_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
-{
-/* when built into the kernel, we only print version if device is found */
-#ifndef MODULE
-	static int printed_version;
-	if (!printed_version++)
-		printk(version);
-#endif
-	assert(pdev != NULL);
-	assert(ent != NULL);
-
-	return prl_tg_probe_common(pdev, TOOLGATE, &prl_tg_ops);
-}
 
 #ifdef CONFIG_PM
 int prl_tg_suspend_common(struct tg_dev *dev, pm_message_t state)
@@ -558,7 +546,37 @@ int prl_tg_resume_common(struct tg_dev *dev)
 	return rc;
 }
 EXPORT_SYMBOL(prl_tg_resume_common);
+#endif /* CONFIG_PM */
 
+static int prl_tg_probe(
+		struct pci_dev *pdev, const struct pci_device_id *ent)
+{
+	struct tg_dev *dev = NULL;
+/* when built into the kernel, we only print version if device is found */
+#ifndef MODULE
+	static int printed_version;
+	if (!printed_version++)
+		printk(version);
+#endif
+	assert(pdev != NULL);
+	assert(ent != NULL);
+
+	dev = kmalloc(sizeof(struct tg_dev), GFP_KERNEL);
+	assert(dev != NULL);
+	dev->pci_dev = pdev;
+	pci_set_drvdata(pdev, dev);
+
+	return prl_tg_probe_common(dev, TOOLGATE, &prl_tg_ops);
+}
+
+static void prl_tg_remove(struct pci_dev *pdev)
+{
+	prl_tg_remove_common(pci_get_drvdata(pdev));
+	kfree(pci_get_drvdata(pdev));
+	pci_set_drvdata(pdev, NULL);
+}
+
+#ifdef CONFIG_PM
 static int prl_tg_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	return prl_tg_suspend_common(pci_get_drvdata(pdev), state);
@@ -583,6 +601,7 @@ static struct pci_driver prl_tg_pci_driver = {
 
 static int __init prl_tg_init_module(void)
 {
+	int rc;
 /* when a module, this is printed whether or not devices are found in probe */
 #ifdef MODULE
 	printk(version);

@@ -489,12 +489,17 @@ static struct proc_ops prl_vtg_ops = PRLTG_PROC_OPS_INIT(
 
 int prl_vtg_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	return prl_tg_probe_common(pdev, VIDEO_TOOLGATE, &prl_vtg_ops);
+	struct tg_dev *dev = kmalloc(sizeof(struct tg_dev), GFP_KERNEL);
+	assert(dev != NULL);
+	dev->pci_dev = pdev;
+	pci_set_drvdata(pdev, dev);
+	return prl_tg_probe_common(dev, VIDEO_TOOLGATE, &prl_vtg_ops);
 }
 
 void prl_vtg_remove(struct pci_dev *pdev)
 {
 	prl_tg_remove_common(pci_get_drvdata(pdev));
+	kfree(pci_get_drvdata(pdev));
 	pci_set_drvdata(pdev, NULL);
 }
 

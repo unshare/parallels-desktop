@@ -18,9 +18,12 @@
 //
 //#include <Tools/Toolgate/Interfaces/Tg.h>
 
-// Capabilities flags
-#define PRLVID_CAPABILITY_ACCELERATED		(1 << 0)
-#define PRLVID_CAPABILITY_APERTURE_ONLY		(1 << 1)
+// Interrupt status/mask register bits
+#define TG_MASK_VSYNC 0x04
+
+// Capability flags
+#define PRLVID_CAPABILITY_ACCELERATED   0x01
+#define PRLVID_CAPABILITY_APERTURE_ONLY 0x02
 
 //
 // TG_SET_MOUSE_POINTER inline data
@@ -100,7 +103,7 @@ typedef struct _VID_TG_PALETTE {
 } VID_TG_PALETTE;
 
 // guest-to-host shared area: per-head framebuffer updates
-// should be accessed via appropriate atimic operations
+// should be accessed via appropriate atomic operations
 typedef union _VID_TG_UPDATE_BOUNDS {
 	struct {
 		short left;
@@ -116,7 +119,7 @@ typedef union _VID_TG_UPDATE_BOUNDS {
 } VID_TG_UPDATE_BOUNDS;
 
 // guest-to-host shared area: desktop-space mouse position
-// should be accessed via appropriate atimic operations
+// should be accessed via appropriate atomic operations
 typedef union _VID_TG_MOUSE_POSITION {
 	struct {
 		int x;
@@ -128,6 +131,27 @@ typedef union _VID_TG_MOUSE_POSITION {
 	unsigned long long u;
 #endif
 } VID_TG_MOUSE_POSITION;
+
+// guest-to-host shared area: vsync state
+// should be accessed via appropriate atomic operations
+typedef union _VID_TG_VSYNC_STATE {
+	struct {
+		unsigned available;
+		unsigned enabled;
+#define VID_TG_VSYNC_ENABLED   0x01
+#define VID_TG_VSYNC_NEEDSWAKE 0x02
+
+		// bit-per-head vsync events
+		unsigned events;
+
+		unsigned reserved;
+	} s;
+#ifdef _MSC_VER
+	unsigned __int64 u[2];
+#else
+	unsigned long long u[2];
+#endif
+} VID_TG_VSYNC_STATE;
 
 typedef struct _VID_TG_MAP_APERTURE {
 #ifdef _MSC_VER
@@ -218,6 +242,18 @@ typedef struct _VID_TG_GL_COMMAND2 {
 	unsigned reserved;
 	VID_TG_RECT rect;
 } VID_TG_GL_COMMAND2;
+
+typedef struct _VID_TG_GL_READ_BUFFER {
+	unsigned buffer;
+	unsigned mode; // GL_FRONT/GL_BACK
+#ifdef _MSC_VER
+	unsigned __int64 vidMemAddress;
+#else
+	unsigned long long vidMemAddress;
+#endif
+	unsigned vidMemStride;
+	unsigned vidMemBitsPerPixel;
+} VID_TG_GL_READ_BUFFER;
 
 typedef struct _VID_TG_DIRECT3D_GET_RESOURCE_INFO {
 	unsigned int ResourceType;

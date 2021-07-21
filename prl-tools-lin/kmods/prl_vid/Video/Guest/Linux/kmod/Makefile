@@ -44,7 +44,7 @@ prl_vid: prl_drm_flags $(CFILES)
 
 prl_drm_flags:
 	$(info Start checking drm core on kernel $(KERNEL_DIR)...)
-	$(eval PRL_DRM_CFLAGS := $(shell cd ./test; ./test_drm_core.sh $(KERNEL_DIR)) )
+	$(eval PRL_DRM_CFLAGS := $(shell cd ./test; ./test_drm_core.sh $(KERNEL_DIR) $(CC)) )
 	$(info Result extra flags: $(PRL_DRM_CFLAGS))
 
 clean:

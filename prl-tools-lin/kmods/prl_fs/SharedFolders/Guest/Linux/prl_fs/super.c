@@ -23,7 +23,7 @@
 
 static char version[] = KERN_INFO DRIVER_LOAD_MSG "\n";
 
-static struct pci_dev *tg_dev;
+static struct pci_dev *pci_tg;
 
 extern struct file_operations prlfs_names_fops;
 extern struct inode_operations prlfs_names_iops;
@@ -252,7 +252,7 @@ static void sf_param_req_free(struct prlfs_sf_param_req *p)
 	kfree(p);
 }
 
-static int get_sf_id(struct pci_dev *pdev, const char *sf_name)
+static int get_sf_id(struct tg_dev *pdev, const char *sf_name)
 {
 	struct prlfs_sf_parameters *psp;
 	struct prlfs_sf_response *prsp;
@@ -260,7 +260,7 @@ static int get_sf_id(struct pci_dev *pdev, const char *sf_name)
 	int ret;
 
 	DPRINTK("ENTER\n");
-	req = sf_param_req_alloc(PAGE_SIZE);
+	req = sf_param_req_alloc(sizeof(*prsp));
 	if (!req) {
 		ret = -ENOMEM;
 		goto out;
@@ -269,7 +269,7 @@ static int get_sf_id(struct pci_dev *pdev, const char *sf_name)
 	psp->id = GET_SF_ID_BY_NAME;
 	prsp = req->prsp;
 	strncpy(prsp->buf, sf_name, sizeof(prsp->buf) - 1);
-	ret = host_request_sf_param(pdev, prsp, PAGE_SIZE, psp);
+	ret = host_request_sf_param(pdev, prsp, sizeof(*prsp), psp);
 	if (ret >= 0)
 		ret = psp->index;
 
@@ -279,20 +279,20 @@ out:
 	return ret;
 }
 
-static int get_sf_features(struct pci_dev *pdev, struct prlfs_sf_features *psff)
+static int get_sf_features(struct tg_dev *pdev, struct prlfs_sf_features *psff)
 {
 	struct prlfs_sf_param_req *req;
 	int ret;
 
 	DPRINTK("ENTER\n");
-	req = sf_param_req_alloc(PAGE_SIZE);
+	req = sf_param_req_alloc(PAGE_SIZE_4K);
 	if (!req) {
 		ret = -ENOMEM;
 		goto out;
 	}
 	req->sp.id = GET_SF_FEATURES;
 	memcpy(req->prsp, psff, sizeof(*psff));
-	ret = host_request_sf_param(pdev, req->prsp, PAGE_SIZE, &req->sp);
+	ret = host_request_sf_param(pdev, req->prsp, PAGE_SIZE_4K, &req->sp);
 	if (ret >= 0) {
 		memcpy(psff, req->prsp, sizeof(*psff));
 	}
@@ -342,17 +342,17 @@ static int prlfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto out;
 	}
 	memset(prlfs_sb, 0, sizeof(struct prlfs_sb_info));
-	prlfs_sb->pdev = tg_dev;
+	prlfs_sb->pdev = pci_get_drvdata(pci_tg);
 	ret = prlfs_parse_mount_options(data, prlfs_sb);
 	if (ret < 0)
 		goto out_free;
 
 	if (prlfs_sb->host_inodes) {
 		struct prlfs_sf_features sff = {PRLFS_SFF_HOST_INODES};
-		if ((get_sf_features(tg_dev, &sff) < 0) || !(sff.flags & PRLFS_SFF_HOST_INODES))
+		if ((get_sf_features(prlfs_sb->pdev, &sff) < 0) || !(sff.flags & PRLFS_SFF_HOST_INODES))
 			prlfs_sb->host_inodes = 0;
 	}
-	ret = get_sf_id(tg_dev, prlfs_sb->name);
+	ret = get_sf_id(prlfs_sb->pdev, prlfs_sb->name);
 	if (ret < 0)
 		goto out_free;
 	prlfs_sb->sfid = ret;
@@ -476,7 +476,7 @@ static void *seq_sf_start(struct seq_file *s, loff_t *pos)
 	if (*pos == 0)
 		seq_printf(s, "List of shared folders:\n");
 	memset(p, 0, PAGE_SIZE);
-	ret = host_request_get_sf_list(tg_dev, p, PAGE_SIZE);
+	ret = host_request_get_sf_list(pci_get_drvdata(pci_tg), p, PAGE_SIZE);
 	if (ret < 0) {
 		p = ERR_PTR(ret);
 		goto out;
@@ -526,7 +526,7 @@ static int seq_sf_show(struct seq_file *s, void *v)
 	int ret;
 
 	DPRINTK("ENTER\n");
-	req = sf_param_req_alloc(PAGE_SIZE);
+	req = sf_param_req_alloc(sizeof(*prsp));
 	if (!req)
 		goto out;
 	prsp = req->prsp;
@@ -534,14 +534,14 @@ static int seq_sf_show(struct seq_file *s, void *v)
 	psp->index = *(unsigned int *)v;
 	psp->id = GET_SF_INFO;
 	strncpy((char *)psp->locale, "utf-8", LOCALE_NAME_LEN - 1);
-	ret = host_request_sf_param(tg_dev, prsp, PAGE_SIZE, psp);
+	ret = host_request_sf_param(pci_get_drvdata(pci_tg), prsp, sizeof(*prsp), psp);
 	if (ret < 0)
 		goto out_free;
 
 	if (prsp->ret == 0)
 		goto out_free;
 
-	*((char *)prsp + PAGE_SIZE - 1) = 0;
+	*((char *)prsp + sizeof(*prsp) - 1) = 0;
 	seq_printf(s, "%x: %s ", psp->index, prsp->buf);
 	if ( prsp->ret < 3)
 		seq_puts(s, ro[prsp->ret - 1]);
@@ -614,14 +614,15 @@ static int __init init_prlfs(void)
 #endif
 
 	/* get toolgate device */
-	tg_dev = pci_get_subsys(PCI_VENDOR_ID_PARALLELS,
+	pci_tg = pci_get_subsys(PCI_VENDOR_ID_PARALLELS,
 				PCI_DEVICE_ID_TOOLGATE,
 				PCI_ANY_ID, PCI_ANY_ID, NULL);
-	if (tg_dev == NULL) {
+	if (pci_tg == NULL) {
 		ret = -ENODEV;
 		goto out;
 	}
-	pci_dev_get(tg_dev);
+	pci_dev_get(pci_tg);
+
 	ret = prlfs_proc_init();
 	if (ret < 0)
 		goto out_dev_put;
@@ -633,7 +634,7 @@ static int __init init_prlfs(void)
 		goto out;
 
 out_dev_put:
-	pci_dev_put(tg_dev);
+	pci_dev_put(pci_tg);
 out:
 	DPRINTK("EXIT returning %d\n", ret);
 	return ret;
@@ -645,7 +646,7 @@ static void __exit exit_prlfs(void)
 	printk(KERN_INFO "unloading " MODNAME "\n");
 	unregister_filesystem(&prl_fs_type);
 	prlfs_proc_clean();
-	pci_dev_put(tg_dev);
+	pci_dev_put(pci_tg);
 	DPRINTK("EXIT\n");
 }
 
