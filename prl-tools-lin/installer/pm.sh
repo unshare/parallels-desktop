@@ -1041,6 +1041,8 @@ check_libelf()
 	local lib_list
 	if [ "$karch" = 'x86_64' ]; then
 		lib_list='lib lib64 lib/x86_64-linux-gnu'
+	elif [ "$karch" = 'aarch64' ]; then
+		lib_list='lib lib64 lib/aarch64-linux-gnu'
 	else
 		lib_list='lib lib/i386-linux-gnu lib/i686-linux-gnu'
 	fi
