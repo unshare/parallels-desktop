@@ -1,6 +1,7 @@
 #!/bin/sh
 
 KERNEL_DIR=$1
+CC=$2
 
 #	4.7 <= kernel
 T0_0="#include <linux/version.h>
@@ -227,6 +228,7 @@ int test(void) {
 #	kernel < 5.4
 T22_0=" unsigned int test(unsigned int features) {
 	features |= DRIVER_PRIME;
+    return 0;
 }"
 
 #	kernel < 5.9
@@ -263,6 +265,14 @@ T27_0="void test(struct drm_driver *drv) {
 		(struct drm_gem_object *)NULL);
 }"
 
+#	5.13 <= kernel
+T28_0="#include <drm/drm_modeset_helper_vtables.h>
+int test(struct drm_plane_helper_funcs *funcs) {
+	return funcs->atomic_check(
+		(struct drm_plane *)NULL,
+		(struct drm_atomic_state *)NULL);
+}"
+
 tfunc() {
 	local i=0
 
@@ -282,7 +292,7 @@ tfunc() {
 ${elem}" > test.c
 
 		# make and delete source
-		make -C "$KERNEL_DIR" M="$(pwd)" SRCROOT="$(pwd)" CC="cc" > /dev/null 2>&1
+		make -C "$KERNEL_DIR" M="$(pwd)" SRCROOT="$(pwd)" CC="$CC" > /dev/null 2>&1
 		rm -f test.c
 
 		i=$((i+1))
@@ -298,7 +308,7 @@ ${elem}" > test.c
 }
 
 # create makefile
-echo "ccflags-y += -I${1}/include" > Makefile
+echo "ccflags-y += -I${1}/include -Werror" > Makefile
 echo "obj-m += ./test.o" >> Makefile
 
 if [ "$(tfunc T0)" -eq "1" ]
@@ -330,6 +340,7 @@ then
 	echo "-DPRL_DRM_FB_HELPER_SINGLE_ADD_ALL_CONNECTORS=$(tfunc T25)"
 	echo "-DPRL_KMS_CRTC_ATOMIC_STATE_X=$(tfunc T26)"
 	echo "-DPRL_DRM_GEM_DRM_DRIVER_CALLS=$(tfunc T27)"
+	echo "-DPRL_DRM_PLANE_HELPER_CALLS_X=$(tfunc T28)"
 else
 	echo "-DPRL_DRM_ENABLED=0"
 fi

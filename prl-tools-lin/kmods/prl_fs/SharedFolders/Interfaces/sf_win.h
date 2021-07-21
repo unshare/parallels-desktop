@@ -24,7 +24,11 @@
 // Server name changed from ".psf" to "psf" in prl_fs.sys of version 2.0 (indicated in the TIS)
 // Server name changed from "psf" to "Mac" in prl_fs.sys of version 4.0 (indicated in the TIS)
 // Deprecated by introduction of dynamic server name selection in 4.4
+#if PRL_PROD(DESKTOP_CHROMEOS)
+#define PRLFS_SERVER_NAME	"ChromeOS"
+#else
 #define PRLFS_SERVER_NAME	"Mac"
+#endif
 
 
 // The macro below lists all previously used names for PSF hostname along with

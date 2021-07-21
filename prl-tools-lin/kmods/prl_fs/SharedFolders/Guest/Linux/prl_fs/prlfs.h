@@ -6,7 +6,6 @@
 #ifndef __PRL_FS_H__
 #define __PRL_FS_H__
 
-#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/param.h>
@@ -16,6 +15,23 @@
 #include <linux/types.h>
 #include <linux/stat.h>
 #include <linux/fcntl.h>
+
+#include <linux/version.h>
+#ifdef RHEL_RELEASE_CODE
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 2)
+#define PRLFS_RHEL_6_2_GE 1
+#endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)
+#define PRLFS_RHEL_7_3_GE 1
+#endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 1)
+#define PRLFS_RHEL_8_1_GE 1
+#endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 4)
+#define PRLFS_RHEL_8_4_GE 1
+#endif
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 #include <linux/backing-dev-defs.h>
 #else
@@ -25,7 +41,7 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,5,0)
 #include <linux/uidgid.h>
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) || PRLFS_RHEL_8_4_GE
 #include <uapi/linux/mount.h>
 #endif
 
@@ -38,17 +54,6 @@
 #define PRLFS_MAGIC	0x7C7C6673 /* "||fs" */
 
 
-#ifdef RHEL_RELEASE_CODE
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 2)
-#define PRLFS_RHEL_6_2_GE
-#endif
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)
-#define PRLFS_RHEL_7_3_GE
-#endif
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 1)
-#define PRLFS_RHEL_8_1_GE
-#endif
-#endif
 
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
@@ -109,7 +114,7 @@ typedef gid_t kgid_t;
 
 struct prlfs_sb_info {
 	struct backing_dev_info bdi;
-	struct	pci_dev *pdev;
+	struct	tg_dev *pdev;
 	unsigned sfid;
 	unsigned ttl;
 	kuid_t uid;
@@ -169,7 +174,7 @@ static inline struct prlfs_sb_info * PRLFS_SB(struct super_block *sb)
 
 static inline struct tg_dev * PRLTG_SB(struct super_block *sb)
 {
-	return pci_get_drvdata(PRLFS_SB(sb)->pdev);
+	return PRLFS_SB(sb)->pdev;
 }
 
 void prlfs_read_inode(struct inode *inode);
@@ -180,8 +185,8 @@ void prlfs_read_inode(struct inode *inode);
 
 typedef u64 compat_statfs_block;
 
-int host_request_get_sf_list(struct pci_dev *pdev, void *data, int size);
-int host_request_sf_param(struct pci_dev *pdev, void *data, int size,
+int host_request_get_sf_list(struct tg_dev *pdev, void *data, int size);
+int host_request_sf_param(struct tg_dev *pdev, void *data, int size,
 					 struct prlfs_sf_parameters *psp);
 int host_request_attr (struct super_block *sb, const char *path, int psize,
 						struct buffer_descriptor *bd);
@@ -228,7 +233,7 @@ int host_request_symlink(struct super_block *sb, const void *src_path, int src_l
 #endif
 
 #define MODNAME		"prlfs"
-#define DRV_VERSION	"2.0.1"
+#define DRV_VERSION	"2.1.0"
 #define PFX		MODNAME ": "
 
 #define PRLFS_ROOT_INO 2

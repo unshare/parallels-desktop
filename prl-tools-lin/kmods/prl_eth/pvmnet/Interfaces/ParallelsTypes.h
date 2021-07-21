@@ -66,7 +66,19 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 #define FORCE_PLATFORM_CHECK
 
 // Determining current architecture
-#if defined(__x86_64__) || defined(_M_X64) || defined (_AMD64_) || defined(_WIN64) || defined(_M_AMD64) || defined(_M_IA64)
+
+#if defined(_M_ARM64)
+// Do not define _ARM_: it means ARM32 for windows.h
+	#define PRL_ARM64
+#ifndef _64BIT_
+	#define _64BIT_
+#endif
+#elif defined(_M_ARM)
+#define PRL_ARM32
+#ifndef _32BIT_
+	#define _32BIT_
+#endif
+#elif defined(__x86_64__) || defined(_M_X64) || defined (_AMD64_) || defined(_WIN64) || defined(_M_AMD64) || defined(_M_IA64)
 #ifndef _64BIT_
 	#define _64BIT_
 #endif
@@ -87,36 +99,24 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 	#error "Define _AMD64_ is incompatible with 32-bit platform!"
 #endif
 #elif defined(__arm__)
+	#define PRL_ARM32
 #ifndef _32BIT_
 	#define _32BIT_
 #endif
 #ifndef _ARM_
 	#define _ARM_
 #endif
-#ifndef _ARMV_
-	#if defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) || \
-		defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__)
-		#define _ARMV_ 7
-	#else
-		#error Unknown ARM version
-	#endif
-#endif
 #elif defined (__aarch64__)
+	#define PRL_ARM64
 	#ifndef _64BIT_
 		#define _64BIT_
 	#endif
-
-	#ifndef _ARM_
-		#define _ARM_
-	#endif
-
-	#if defined(__ARM64_ARCH_8__) || defined(ANDROID)
-		#define _ARMV_ 8
-	#else
-		#error Unknown ARM64 version
-	#endif
 #else
 	#error "Failed to determine processor architecture"
+#endif
+
+#if defined(PRL_ARM32) || defined(PRL_ARM64)
+	#define PRL_ARM
 #endif
 
 /**
@@ -286,7 +286,7 @@ typedef UINT64 QWORD;
 /* Best definition is in Linux kernel, X86_L1_CACHE_SHIFT:
  *   arch/x86/Kconfig.cpu
  */
-#define CACHELINE_SIZE	64
+#define CACHELINE_SIZE	64u
 
 #define CPUMASK_ALL		((UINT)0xFFFFFFFF)
 #define CPUMASK_NONE	0
@@ -357,7 +357,7 @@ typedef UINT64 QWORD;
 	#define PRL_ALIGN(x)		__attribute__((aligned(x)))
 #endif
 #ifndef __cdecl
-#ifdef _64BIT_
+#if defined (_64BIT_) || defined(PRL_ARM)
 	#define __cdecl
 #else
 	#define __cdecl			__attribute__((__cdecl__))

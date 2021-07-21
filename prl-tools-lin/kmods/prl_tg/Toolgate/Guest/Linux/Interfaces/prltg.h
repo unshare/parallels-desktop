@@ -73,6 +73,7 @@ struct draw_bdesc {
 #define PRL_DRM_IMAGE_CREATE		8
 // Release image
 #define PRL_DRM_IMAGE_RELEASE		9
+#define PRL_DRM_GET_DUMB_PARAMS		10
 
 #define IMAGE_DESC_FORMAT_MAX		60
 struct image_desc {
@@ -88,6 +89,11 @@ struct mode_desc {
 	unsigned int index;		// head index
 	unsigned int width;
 	unsigned int height;
+};
+
+struct dumb_params_desc {
+	unsigned int handle; // dumb buffer handle
+	unsigned long long aperture_addr;
 };
 
 #endif

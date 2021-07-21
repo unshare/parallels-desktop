@@ -77,7 +77,7 @@ typedef enum {
 struct tg_dev {
 	board_t board;
 	unsigned int irq;
-	unsigned long base_addr;
+	void __iomem *base_addr;
 	spinlock_t queue_lock; /* protects queue of submitted requests */
 	struct list_head pr_list; /* pending requests list */
 	struct work_struct work;
@@ -136,7 +136,8 @@ enum TgRegisters {
 	TG_PORT_CAPS	= 0x4,
 	TG_PORT_SUBMIT	= 0x8,
 	TG_PORT_CANCEL	= 0x10,
-	TG_MAX_PORT		= 0x18
+	TG_MAX_PORT		= 0x18,
+	TG_MAX_MEM	= 0x1000,
 };
 
 /* Port IO primitives */
@@ -147,7 +148,11 @@ tg_in32(struct tg_dev *dev, unsigned long port)
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->lock, flags);
+#if defined(__aarch64__)
+	x = ioread32(dev->base_addr + port);
+#else
 	x = inl(dev->base_addr + port);
+#endif
 	spin_unlock_irqrestore(&dev->lock, flags);
 	return (x);
 }
@@ -158,7 +163,11 @@ tg_out32(struct tg_dev *dev, unsigned long port, u32 val)
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->lock, flags);
+#if defined(__aarch64__)
+	iowrite32(val, dev->base_addr + port);
+#else
 	outl(val, dev->base_addr + port);
+#endif
 	spin_unlock_irqrestore(&dev->lock, flags);
 }
 
@@ -169,6 +178,10 @@ tg_out(struct tg_dev *dev, unsigned long port, unsigned long long val)
 
 	port += dev->base_addr;
 	spin_lock_irqsave(&dev->lock, flags);
+
+#if defined(__aarch64__)
+	iowrite64(val, port);
+#else
 	if (dev->flags & TG_DEV_FLAG_OUTS) {
 		unsigned long len = (sizeof(unsigned long long) >> 2);
 		void *ptr = &val;
@@ -187,13 +200,14 @@ tg_out(struct tg_dev *dev, unsigned long port, unsigned long long val)
 
 		outl(val_l, port);
 	}
+#endif // __aarch64__
 	spin_unlock_irqrestore(&dev->lock, flags);
 }
 
 struct pci_dev;
 struct file_operations;
 // Exported functions
-int prl_tg_probe_common(struct pci_dev *pdev, board_t board,
+int prl_tg_probe_common(struct tg_dev *pdev, board_t board,
                         struct proc_ops *proc_ops);
 void prl_tg_remove_common(struct tg_dev *dev);
 #ifdef CONFIG_PM

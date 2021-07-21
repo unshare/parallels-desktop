@@ -129,7 +129,7 @@ get_xmodules_source_dir() {
 ####################################################################################################
 get_xmodules_dir() {
 	xdirs=
-	if [ "$ARCH" = "x86_64" ]; then
+	if [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ]; then
 		# For 64-bit Debian-based systems 64-bit stuff is placed in /lib and
 		# /usr/lib. So need to go through _DIRS32 as well.
 		# It should be noted that if the system was updated from 32-bit one

@@ -54,10 +54,12 @@ typedef struct _TG_PAGED_REQUEST {
 #define TG_INTBIT_COMPLETE	(0)
 #define TG_INTBIT_ERROR		(1)
 #define TG_INTBIT_SFILTER	(2)
+#define TG_INTBIT_UNUSED	(3)
 
 #define TG_MASK_COMPLETE	(1 << TG_INTBIT_COMPLETE)
 #define TG_MASK_ERROR		(1 << TG_INTBIT_ERROR)
 #define TG_MASK_SFILTER		(1 << TG_INTBIT_SFILTER)
+#define TG_MASK_UNUSED		(1 << TG_INTBIT_UNUSED)
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -237,6 +239,7 @@ typedef struct _TG_PAGED_REQUEST {
 #define TG_REQUEST_GL_COMMAND         0x8139
 #define TG_REQUEST_GL_SYNCHRONIZE     0x813a
 #define TG_REQUEST_GL_RECREATE_BUFFER 0x813b
+#define TG_REQUEST_GL_READ_BUFFER     0x813c
 #define TG_REQUEST_GL_MAX             0x813f
 
 // graceful shutdown tool requests

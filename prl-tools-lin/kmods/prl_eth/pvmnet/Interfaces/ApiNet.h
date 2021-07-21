@@ -8,7 +8,7 @@
 ///
 /// @brief Ring buffer description
 ///
-/// Copyright (c) 1999-2016 Parallels International GmbH.
+/// Copyright (c) 1999-2021 Parallels International GmbH.
 /// All Rights Reserved.
 /// http://www.parallels.com
 ///
@@ -99,9 +99,9 @@ typedef struct _NET_BUFFER
 
 	// Flags for virtio network card
 #define NET_VIRTIO_RX_DIRECT			(1 << 0)
-	UINT	uVirtIoFlags;
-	UINT	uVirtIoHostFeatures;
-	UINT	uVirtIoAckedFeatures;
+	UINT64	uVirtIoFlags;
+	UINT64	uVirtIoHostFeatures;
+	UINT64	uVirtIoAckedFeatures;
 
 	UINT64  virtio_queue_notify_mmio_addr;
 	UINT64  virtio_queue_notify_port;
@@ -153,7 +153,7 @@ typedef struct _NET_BUFFER
 	} stat;
 
 	// align to 1Kb boundary here
-	UCHAR	pad[1024 - 384];
+	UCHAR	pad[1024 - 396];
 
 	// data buffers allow 1.5Kb tailroom to ease wraparound
 	// Note: aSendBuffer is not used in e1000-mode. It just extends the aBuffer
@@ -166,21 +166,21 @@ typedef NET_BUFFER *PNET_BUFFER;
 
 static __inline UINT prlnet_vio_get_feature(NET_BUFFER *nb, int feature_num)
 {
-	return (nb->uVirtIoAckedFeatures & (1 << feature_num));
+	return !!(nb->uVirtIoAckedFeatures & (1ull << feature_num));
 }
 
 
 static __inline void prlnet_vio_host_add_feature(NET_BUFFER *nb, UINT feature_num) {
-	nb->uVirtIoHostFeatures |= (1 << feature_num);
+	nb->uVirtIoHostFeatures |= (1ull << feature_num);
 }
 
 
 static __inline void prlnet_vio_host_del_feature(NET_BUFFER *nb, UINT feature_num) {
-	nb->uVirtIoHostFeatures &= ~(1 << feature_num);
+	nb->uVirtIoHostFeatures &= ~(1ull << feature_num);
 }
 
 // Network buffer size in pages (for packets)
-#define NET_BUFF_PAGES	BYTES2PAGES(sizeof(NET_BUFFER))
+#define NET_BUFF_PAGES	BYTES2PAGES_4K(sizeof(NET_BUFFER))
 
 BUILD_BUG_ON(IO_NET_SIZE & (IO_NET_SIZE-1));
 BUILD_BUG_ON(sizeof(NET_BUFFER) != 4096 + IO_NET_SIZE * 2);

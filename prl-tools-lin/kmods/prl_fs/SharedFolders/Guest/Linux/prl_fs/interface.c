@@ -102,7 +102,7 @@ static void init_tg_buffer(TG_REQ_DESC *sdesc, int bnum, void *buffer,
 		prltg_buf_set_kernelspace(sdesc, bnum);
 }
 
-int host_request_get_sf_list(struct pci_dev *pdev, void *data, int size)
+int host_request_get_sf_list(struct tg_dev *dev, void *data, int size)
 {
 	int blen, ret;
 	TG_REQ_DESC sdesc;
@@ -116,13 +116,13 @@ int host_request_get_sf_list(struct pci_dev *pdev, void *data, int size)
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_GETSFLIST, 0, 1);
 	init_req_desc(&sdesc, &Req.Req, NULL, &Req.Buffer);
 	init_tg_buffer(&sdesc, 0, data, size, 1, 0);
-	ret = call_tg_sync(pci_get_drvdata(pdev), &sdesc);
+	ret = call_tg_sync(dev, &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
 	return ret;
 }
 
-int host_request_sf_param(struct pci_dev *pdev, void *data, int size,
+int host_request_sf_param(struct tg_dev *dev, void *data, int size,
 					 struct prlfs_sf_parameters *psp)
 {
 	int blen, ret;
@@ -138,7 +138,7 @@ int host_request_sf_param(struct pci_dev *pdev, void *data, int size,
 	init_req_desc(&sdesc, &Req.Req, NULL, &Req.Buffer[0]);
 	init_tg_buffer(&sdesc, 0, (void *)psp, blen, 1, 0);
 	init_tg_buffer(&sdesc, 1, data, size, 1, 0);
-	ret = call_tg_sync(pci_get_drvdata(pdev), &sdesc);
+	ret = call_tg_sync(dev, &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
 	return ret;
