@@ -271,6 +271,13 @@ int test(struct drm_plane_helper_funcs *funcs) {
 		(struct drm_atomic_state *)NULL);
 }"
 
+#	5.5 <= kernel || 8.3 <= RHEL
+X2_1="
+#ifndef PRL_DRM_OLD_HEADER_LAYOUT
+#error This kernel has DRM headers laid out as in 5.5+ mainline
+#endif
+"
+
 shopt -s extglob
 trap 'rm -rf !("$(basename ${BASH_SOURCE[0]})") .[^.]*' EXIT
 
@@ -283,7 +290,12 @@ tfunc() {
 	do
 		cat >test.c <<-EOF
 			#include <linux/version.h>
-			#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
+			#ifdef RHEL_RELEASE_CODE
+			#define PRL_DRM_OLD_HEADER_LAYOUT (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8, 3))
+			#else
+			#define PRL_DRM_OLD_HEADER_LAYOUT (LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0))
+			#endif
+			#if PRL_DRM_OLD_HEADER_LAYOUT
 			#include <drm/drmP.h>
 			#else
 			#include <drm/drm_drv.h>
@@ -345,6 +357,7 @@ then
 	echo "-DPRL_KMS_CRTC_ATOMIC_STATE_X=$(tfunc T26)"
 	echo "-DPRL_DRM_GEM_DRM_DRIVER_CALLS=$(tfunc T27)"
 	echo "-DPRL_DRM_PLANE_ATOMIC_STATE_X=$(tfunc X1)"
+	echo "-DPRL_DRM_OLD_HEADER_LAYOUT=$(tfunc X2)"
 else
 	echo "-DPRL_DRM_ENABLED=0"
 fi
