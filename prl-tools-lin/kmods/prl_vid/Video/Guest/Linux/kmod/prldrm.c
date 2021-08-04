@@ -4,7 +4,7 @@
 
 #if PRL_DRM_ENABLED
 #include <linux/version.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
+#if PRL_DRM_OLD_HEADER_LAYOUT
 #include <drm/drmP.h>
 #else
 #include <drm/drm_drv.h>
