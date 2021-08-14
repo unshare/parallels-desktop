@@ -421,6 +421,47 @@ out:
 	return ret;
 }
 
+static ssize_t prlfs_read(struct file *filp, char *buf, size_t size,
+								loff_t *off)
+{
+	struct dentry *dentry = FILE_DENTRY(filp);
+	struct inode *inode = dentry->d_inode;
+
+	return prlfs_rw(inode, buf, size, off, 0, 1, TG_REQ_COMMON);
+}
+
+static ssize_t prlfs_write(struct file *filp, const char *buf, size_t size,
+								 loff_t *off)
+{
+	ssize_t ret;
+	struct dentry *dentry = FILE_DENTRY(filp);
+	struct inode *inode = dentry->d_inode;
+	loff_t real_off;
+
+	// Check O_APPEND flag before send TG request to host
+	if (filp->f_flags & O_APPEND)
+		real_off = inode->i_size;
+	else
+		real_off = *off;
+
+	prlfs_inode_lock(inode);
+	ret = prlfs_rw(inode, (char *)buf, size, &real_off, 1, 1, TG_REQ_COMMON);
+	dentry->d_time = 0;
+	if (ret < 0)
+		goto out;
+
+	if (inode->i_size < real_off)
+		inode->i_size = real_off;
+	// For linux kernel we should return relative offset in off parameter
+	if (filp->f_flags & O_APPEND)
+		*off += size;
+	else
+		*off = real_off;
+out:
+	prlfs_inode_unlock(inode);
+	return ret;
+}
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
 #ifdef PRL_SIMPLE_SYNC_FILE
 int simple_sync_file(struct file *filp, struct dentry *dentry, int datasync)
@@ -432,13 +473,8 @@ int simple_sync_file(struct file *filp, struct dentry *dentry, int datasync)
 
 struct file_operations prlfs_file_fops = {
 	.open		= prlfs_open,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
-	.read_iter  = generic_file_read_iter,
-	.write_iter = generic_file_write_iter,
-#else
-	.aio_read   = generic_file_aio_read,
-	.aio_write  = generic_file_aio_write,
-#endif
+	.read           = prlfs_read,
+	.write		= prlfs_write,
 	.llseek         = generic_file_llseek,
 	.release	= prlfs_release,
 	.mmap		= generic_file_mmap,
