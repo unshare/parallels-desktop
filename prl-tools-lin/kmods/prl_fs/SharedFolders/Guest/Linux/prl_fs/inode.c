@@ -893,68 +893,23 @@ int prlfs_writepage(struct page *page, struct writeback_control *wbc) {
 	loff_t off = page->index << PAGE_SHIFT;
 	loff_t w_remainder = i_size - off;
 
-	DPRINTK("ENTER page=%p off=%lld\n", page, off);
-
-	set_page_writeback(page);
+	prlfs_inode_lock(inode);
 	buf = kmap(page);
 	ret = prlfs_rw(inode, buf,
 		       w_remainder < PAGE_SIZE ? w_remainder : PAGE_SIZE,
 		       &off, 1, 0, TG_REQ_COMMON);
 	kunmap(page);
-	if (ret < 0) {
-		rc =  -EIO;
-		SetPageError(page);
-		mapping_set_error(page->mapping, rc);
-	}
-
-	end_page_writeback(page);
-	unlock_page(page);
-	DPRINTK("EXIT ret=%d\n", rc);
-	return rc;
-}
-
-static int prlfs_write_end(struct file *file, struct address_space *mapping,
-                           loff_t pos, unsigned int len, unsigned int copied,
-                           struct page *page, void *fsdata)
-{
-	unsigned int from = pos & (PAGE_SIZE - 1);
-	struct inode *inode = mapping->host;
-	ssize_t ret;
-	loff_t offset = pos;
-	char *buf;
-
-	DPRINTK("ENTER inode=%p pos=%lld len=%u copied=%u\n", inode, pos, len, copied);
-
-	if (!PageUptodate(page) && copied < len)
-		zero_user(page, from + copied, len - copied);
-
-	buf = kmap(page);
-	ret = prlfs_rw(inode, buf + from, copied, &offset, 1, 0, TG_REQ_COMMON);
-	kunmap(page);
-
 	if (ret < 0)
-		goto out;
+		rc =  -EIO;
 
-	if (!PageUptodate(page) && len == PAGE_SIZE)
-		SetPageUptodate(page);
-
-	if (pos + copied > inode->i_size)
-		i_size_write(inode, pos + copied);
-
-out:
+	prlfs_inode_unlock(inode);
 	unlock_page(page);
-	put_page(page);
-
-	DPRINTK("EXIT ret=%ld\n", ret);
-	return ret;
+	return rc;
 }
 
 static const struct address_space_operations prlfs_aops = {
 	.readpage		= prlfs_readpage,
 	.writepage		= prlfs_writepage,
-	.write_begin    = simple_write_begin,
-	.write_end      = prlfs_write_end,
-	.set_page_dirty = __set_page_dirty_nobuffers,
 };
 
 
