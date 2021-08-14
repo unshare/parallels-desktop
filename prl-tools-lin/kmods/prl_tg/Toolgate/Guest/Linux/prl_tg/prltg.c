@@ -588,6 +588,11 @@ static int prl_tg_resume(struct pci_dev *pdev)
 }
 #endif /* CONFIG_PM */
 
+#ifdef INTELLISENSE
+#define KBUILD_MODNAME "prl_tg"
+#define KBUILD_MODFILE KBUILD_MODNAME ## ".mod"
+#endif
+
 static struct pci_driver prl_tg_pci_driver = {
 	.name		= DRV_SHORT_NAME,
 	.id_table	= prl_tg_pci_tbl,

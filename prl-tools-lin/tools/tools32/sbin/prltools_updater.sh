@@ -10,14 +10,19 @@
 TOOLS_DIR="/usr/lib/parallels-tools"
 BACKUP_DIR="/var/lib/parallels-tools"
 
+E_NOERR=0
+E_NOXSERV=163
+
 prl_check_version()
 {
 	local xorg_version
 	xorg_version=$("$TOOLS_DIR/installer/detect-xserver.sh" --xver)
-	if [[ $? -ne 0 ]]; then
-		echo "Error: Can't detect Xorg server version, exitting" >&2
-		exit 1
-	fi
+	case $? in
+		$E_NOERR|$E_NOXSERV) ;;
+		*)
+			echo "Error: Can't detect Xorg server version, exitting" >&2
+			exit 1
+	esac
 	[[ ! -r "$BACKUP_DIR/xorg.version" ]] && return 2
 	local xorg_old_version=$([ -r "$BACKUP_DIR/xorg.version" ] &&
 		cat "$BACKUP_DIR/xorg.version")

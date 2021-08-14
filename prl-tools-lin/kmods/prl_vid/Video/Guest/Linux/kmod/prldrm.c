@@ -4,7 +4,7 @@
 
 #if PRL_DRM_ENABLED
 #include <linux/version.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
+#if PRL_DRM_OLD_HEADER_LAYOUT
 #include <drm/drmP.h>
 #else
 #include <drm/drm_drv.h>
@@ -2582,7 +2582,9 @@ int prl_drm_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		DRM_ERROR(PFX_FMT "Failed allocating a drm device.", PFX_ARG);
 		return PTR_ERR(dev);
 	}
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 14 ,0)
 	dev->pdev = pdev;
+#endif
 
 	prl_dev = kzalloc(sizeof(*prl_dev), GFP_KERNEL);
 	if (unlikely(!prl_dev)) {

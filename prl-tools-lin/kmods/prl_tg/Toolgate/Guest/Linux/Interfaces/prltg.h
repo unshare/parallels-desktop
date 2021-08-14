@@ -19,6 +19,12 @@ typedef struct _TG_REQ_DESC {
 	unsigned kernel_bufs;
 } TG_REQ_DESC;
 
+#ifdef INTELLISENSE
+/* IntelliSense fails miserably in inline assembly */
+#undef BUG
+#define BUG() do {} while (0)
+#endif
+
 #define prltg_buf_set_kernelspace(sdesc, num) \
 	do {BUG_ON((num) >= 32); (sdesc)->kernel_bufs |= 1 << (num);} while(0)
 

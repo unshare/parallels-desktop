@@ -1,0 +1,15 @@
+Module.symvers
+modules.order
+*.cmd
+*.ko
+*.mod
+*.mod.c
+*.d
+*.o
+*.a
+*.ko
+
+/kernel
+/kernel/
+
+/prl_mod.tar.gz

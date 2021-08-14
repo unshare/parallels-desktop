@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "prl-tools-lin"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"Makefile.kmods": "makefile",
+			"*.h": "c"
+		}
+	}
+}

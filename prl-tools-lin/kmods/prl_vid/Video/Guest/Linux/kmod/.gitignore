@@ -1,0 +1,4 @@
+/test/Makefile
+/test/test.c
+/test/.tmp*/
+/prl_drm_flags*.h

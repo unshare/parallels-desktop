@@ -1,0 +1,47 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/kmods/kernel/include",
+                "${workspaceFolder}/kmods/kernel/include/generated",
+                "${workspaceFolder}/kmods/kernel/arch/x86/include",
+                "${workspaceFolder}/kmods/kernel/arch/x86/include/generated",
+                "${workspaceFolder}/kmods/prl_eth/pvmnet",
+                "${workspaceFolder}/kmods/prl_fs/SharedFolders/Guest/Linux/prl_fs",
+                "${workspaceFolder}/kmods/prl_fs",
+                "${workspaceFolder}/kmods/prl_tg/Toolgate/Guest/Linux/Interfaces",
+                "${workspaceFolder}/kmods/prl_tg/Toolgate/Guest/Linux/prl_tg",
+                "${workspaceFolder}/kmods/prl_tg/Toolgate/Interfaces",
+                "${workspaceFolder}/kmods/prl_vid/Video/Guest/Linux/kmod",
+                "${workspaceFolder}/kmods/prl_vid/Video/Interfaces"
+            ],
+            "defines": [
+                "INTELLISENSE",
+                "__GNUC__",
+                "__KERNEL__",
+                "PRLFS_IGET"
+            ],
+            "compilerPath": "/usr/lib64/ccache/gcc",
+            "cStandard": "c99",
+            "cppStandard": "c++03",
+            "intelliSenseMode": "linux-gcc-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/kmods/prl_eth",
+                    "${workspaceFolder}/kmods/prl_fs",
+                    "${workspaceFolder}/kmods/prl_fs_freeze",
+                    "${workspaceFolder}/kmods/prl_tg",
+                    "${workspaceFolder}/kmods/prl_vid",
+                    "${workspaceFolder}/kmods/kernel/include"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            },
+            "forcedInclude": [
+                "${workspaceFolder}/kmods/kernel/include/generated/autoconf.h",
+                "${workspaceFolder}/kmods/prl_vid/Video/Guest/Linux/kmod/prl_drm_flags.h"
+            ]
+        }
+    ],
+    "version": 4
+}
