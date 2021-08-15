@@ -475,7 +475,7 @@ int prl_tg_probe_common(struct tg_dev *dev, board_t board,
 			printk(KERN_WARNING "cannot create %s proc entry\n", proc_file);
 	}
 
-	printk(KERN_INFO "detected %s, base addr %08lx, IRQ %d\n",
+	printk(KERN_INFO "detected %s, base addr %p, IRQ %d\n",
 		board_info[board].name, dev->base_addr, dev->irq);
 
 out:
@@ -606,7 +606,6 @@ static struct pci_driver prl_tg_pci_driver = {
 
 static int __init prl_tg_init_module(void)
 {
-	int rc;
 /* when a module, this is printed whether or not devices are found in probe */
 #ifdef MODULE
 	printk(version);
