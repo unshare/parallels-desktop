@@ -97,6 +97,8 @@ typedef struct _NET_BUFFER
 #define NET_BUFFER_FLAG_FIXEDSIZE_NETBUF	(1 << 3)
 	UINT	uFlags;
 
+	UINT    bTxFull; // TRUE if tx-buffer is filled; used only in prl_eth mode
+
 	// Flags for virtio network card
 #define NET_VIRTIO_RX_DIRECT			(1 << 0)
 	UINT64	uVirtIoFlags;
@@ -153,7 +155,7 @@ typedef struct _NET_BUFFER
 	} stat;
 
 	// align to 1Kb boundary here
-	UCHAR	pad[1024 - 396];
+	UCHAR	pad[1024 - 400];
 
 	// data buffers allow 1.5Kb tailroom to ease wraparound
 	// Note: aSendBuffer is not used in e1000-mode. It just extends the aBuffer
