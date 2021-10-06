@@ -45,6 +45,13 @@ fi
 KVER=$(uname -r)
 KDIR="/lib/modules/$KVER/extra"
 
+XORG_CONF_D=(
+	'/usr/share/X11/xorg.conf.d'
+	'/usr/lib/X11/xorg.conf.d'
+	'/usr/lib64/X11/xorg.conf.d'
+	'/etc/X11/xorg.conf.d'
+)
+
 if [ -r "$INSTALL_DIR/version" ]; then
 	FULL_PRODUCT_VERSION=$(cat "$INSTALL_DIR/version")
 fi
@@ -53,17 +60,20 @@ INSTALL_FULL_PRODUCT_VERSION=$(cat "$BASE_DIR/version")
 ARCH=$(uname -m)
 
 # Kernel modules to be installed
+KMODS_PATHS=(
+	'prl_tg/Toolgate/Guest/Linux/prl_tg'
+	'prl_fs/SharedFolders/Guest/Linux/prl_fs'
+	'prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze'
+	)
 if [ "$ARCH" = "aarch64" ]; then
-	KMODS_PATHS="prl_fs/SharedFolders/Guest/Linux/prl_fs\
-		prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze\
-		prl_tg/Toolgate/Guest/Linux/prl_tg\
-		prl_notifier/Installation/lnx/prl_notifier"
+	KMODS_PATHS+=(
+		'prl_notifier/Installation/lnx/prl_notifier'
+		)
 else
-	KMODS_PATHS="prl_eth/pvmnet \
-		prl_vid/Video/Guest/Linux/kmod \
-		prl_fs/SharedFolders/Guest/Linux/prl_fs\
-		prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze\
-		prl_tg/Toolgate/Guest/Linux/prl_tg"
+	KMODS_PATHS+=(
+		'prl_eth/pvmnet'
+		'prl_vid/Video/Guest/Linux/kmod'
+		)
 fi
 
 UPDATE_MODE=0
@@ -74,10 +84,11 @@ REBOOT_REQUIRED=0
 DETECT_X_SERVER="$INSTALLER_DIR/detect-xserver.sh"
 REGISTER_SERVICE="$INSTALLER_DIR/install-service.sh"
 
-XCONF_BACKUP="$IBACKUP_DIR/.xconf.info"
-TOOLS_BACKUP="$IBACKUP_DIR/.tools.list"
-PSF_BACKUP="$IBACKUP_DIR/.psf"
-SLP_BACKUP="$IBACKUP_DIR/.${SLP_NAME}.selinux"
+BACKUP_DIR="${IBACKUP_DIR}/.backup"
+TOOLS_BACKUP="${BACKUP_DIR}/.tools.list"
+VIDEO_BACKUP="${BACKUP_DIR}/.video.list"
+PSF_BACKUP="${BACKUP_DIR}/.psf"
+SLP_BACKUP="${BACKUP_DIR}/.${SLP_NAME}.selinux"
 
 TOOLS_BIN_DIR_ARM64="$INSTALL_DIR_TOOLS/tools-arm64"
 TOOLS_BIN_DIR_64="$INSTALL_DIR_TOOLS/tools64"
@@ -102,21 +113,12 @@ KERNEL_CONFIG="/boot/config-$KVER"
 XVERSION=""
 XMODULES_SRC_DIR=""
 XMODULES_DIR=""
+USE_PRL_VIDEO=
 
 # User space modules
 TOOLSD="prltoolsd"
 TOOLSD_ISERVICE="$INITD_DIR/$TOOLSD"
 TOOLSD_SD_SERVICE="$TOOLSD.service"        # systemd service file
-
-XTOOLS="prl-x11"
-XTOOLS_ISERVICE="$INITD_DIR/$XTOOLS"
-XTOOLS_INSTALL_JOB="$INIT_DIR/$XTOOLS.conf"
-XTOOLS_SD_SERVICE="$XTOOLS.service"
-
-UTOOLS="prltools_updater"
-UTOOLS_ISERVICE="$INITD_DIR/$UTOOLS"
-UTOOLS_INSTALL_JOB="$INIT_DIR/$UTOOLS.conf"
-UTOOLS_SD_SERVICE="$UTOOLS.service"
 
 OPENGL_SWITCHER="prl-opengl-switcher.sh"
 
@@ -225,7 +227,6 @@ check_x_server_supported() {
 
 	local tools_bin_dir="${TOOLS_DIR}/tools32"
 	[ "$ARCH" = "x86_64" ] && tools_bin_dir="${TOOLS_DIR}/tools64"
-	[ "$ARCH" = "aarch64" ] && tools_bin_dir="${TOOLS_DIR}/tools-arm64"
 	"$DETECT_X_SERVER" -dsrc "$tools_bin_dir" >/dev/null 2>&1
 	rc=$?
 	[ $rc -ne 0 ] && perror "Error: Xorg version $XVERSION not supported"
@@ -252,7 +253,9 @@ check_requirements() {
 		exit $E_NOLINUX
 	fi
 
-	check_x_server_supported || exit $?
+	if use_prl_video; then
+		check_x_server_supported || exit $?
+	fi
 }
 
 check_required_packages() {
@@ -327,7 +330,7 @@ remove_kernel_modules() {
 		done
 	fi
 
-	for kmod_path in $KMODS_PATHS; do
+	for kmod_path in "${KMODS_PATHS[@]}"; do
 		local kmod="${kmod_path%%/*}"
 		local kmod_dir="$INSTALL_DIR_KMODS/$kmod"
 		local fmod="$KDIR/$kmod.ko"
@@ -375,8 +378,13 @@ install_kmods_src() {
 	fi
 
 	mkdir -p "$KDIR"
-	for kmod_path in $KMODS_PATHS; do
+	for kmod_path in "${KMODS_PATHS[@]}"; do
 		local kernel_module_name="${kmod_path%%/*}"
+
+		if [ "$kernel_module_name" = 'prl_vid' ]; then
+			use_prl_video || continue
+		fi
+
 		local kernel_dir="$INSTALL_DIR_KMODS/$kmod_path"
 		tell_user "Start installation of $kernel_module_name kernel module"
 		local found_module="$kernel_dir/$kernel_module_name.ko"
@@ -485,17 +493,22 @@ upstart_enabled() {
 remove_orphaned_files() {
 	# In previous versions these files may not be put into TOOLS_BACK
 	# log-file correctly. So need to remove them explicitely.
-	if [ -e "$UTOOLS_INSTALL_JOB" ] || [ -e "$XTOOLS_INSTALL_JOB" ]; then
-		rm -f "$UTOOLS_INSTALL_JOB"
-		rm -f "$XTOOLS_INSTALL_JOB"
+	local prl_x11_conf="${INIT_DIR}/prl-x11.conf"
+	local prltools_updater_conf="${INIT_DIR}/prltools_updater.conf"
+	if [ -e "$prltools_updater_conf" ] || [ -e "$prl_x11_conf" ]; then
+		rm -f "$prltools_updater_conf" "$prl_x11_conf"
 		type initctl >/dev/null 2>&1 && initctl reload-configuration
 	fi
+
+	# In previous versions init.d scripts were installed even from systemd-based
+	# systemds.
+	rm -f "${INITD_DIR}/prl-x11"
 
 	rm -f "$BIN_DIR/prlfsmountd"
 
 	# Some systemd units also might have missed the TOOLS_BACK file,
 	# so we need to check for them too.
-	rm -f "/usr/lib/systemd/user/${UTOOLS_SD_SERVICE}"
+	rm -f '/usr/lib/systemd/user/prltools_updater.service'
 
 	# On PDFM 11 K20prltoolsd remained in
 	# /etc/rc.d/* dirs on systems with systemd,
@@ -504,19 +517,35 @@ remove_orphaned_files() {
 	for rc_level in /etc/rc.d/*; do
 		rm -f "${rc_level}/K20prltoolsd"
 	done
+
+	rm -vf "${IBACKUP_DIR}/.xconf.info"
+	for xcd in "${XORG_CONF_D[@]}"; do
+		rm -vf "${xcd}/40-prltools.conf"
+	done
+}
+
+remove_by_list() {
+	local file_list=$1
+
+	tell_user "Removing files according to '${file_list}'"
+	while read line; do
+		# Kludge to fix previous buggy backup files on Fedora 19.
+		[ -f "$line" ] || line=$(echo $line | sed 's/^‘\(.*\)’$/\1/')
+		# Kludge to support case when 64-bit Ubuntu 11.04
+		# was updated to 11.10: symlink /usr/lib64 was removed.
+		[ -f "$line" ] || line=${line/usr\/lib64/usr\/lib}
+		echo " rm $line"
+		rm -f "$line"
+	done < "$file_list"
 }
 
 remove_tools_modules() {
-	local skip_xconf_removal=0
-	if [ "$1" = "--skip-xconf" ]; then
-		skip_xconf_removal=1
-	fi
-
 	if systemd_enabled; then
 		for s in \
 				"$TOOLSD_SD_SERVICE" \
-				"$UTOOLS_SD_SERVICE" \
-				"$XTOOLS_SD_SERVICE"; do
+				'prltools_updater' \
+				'prl-x11' \
+				'prltools-reconfig'; do
 			systemctl stop "$s"
 			systemctl disable "$s" 2>&1
 		done
@@ -525,16 +554,10 @@ remove_tools_modules() {
 		# function and will be removed automatically
 		:
 	else
-		[[ -e "$XTOOLS_ISERVICE" ]] &&
-			"$REGISTER_SERVICE" --remove "$XTOOLS"
-
-		[[ -e "$UTOOLS_ISERVICE" ]] &&
-			"$REGISTER_SERVICE" --remove "$UTOOLS"
+		"$REGISTER_SERVICE" --remove 'prltools_updater'
+		"$REGISTER_SERVICE" --remove 'prl-x11'
+		"$REGISTER_SERVICE" --remove 'prltools-reconfig'
 	fi
-
-	# In previous versions init.d scripts were installed even from systemd-based
-	# systemds.
-	rm -f "$XTOOLS_ISERVICE" "$UTOOLS_ISERVICE"
 
 	if [ -e "$TOOLSD_ISERVICE" ]; then
 		"$TOOLSD_ISERVICE" stop
@@ -574,31 +597,13 @@ remove_tools_modules() {
 	unset IFS
 	umount -at prl_fs
 	rmdir "$mpoint"
-	# remove fstab entries after tools of version < 9
-	sed -i -e 'N;/\n#Parallels.*/d;P;D;' /etc/fstab
-	sed -i -e '/prl_fs/d' /etc/fstab
 
 	# delete created links on psf on users desktop
 	grep 'Desktop' $PSF_BACKUP | sed 's/\ /\\\ /g' | xargs rm -f
 
-	# Unset parallels OpenGL libraries
-	if [ -x "$SBIN_DIR/$OPENGL_SWITCHER" ]; then
-		"$SBIN_DIR/$OPENGL_SWITCHER" --off
-	else
-		perror "Can not find executable OpenGL switching tool by path $OPENGL_SWITCHER"
-	fi
-
+	remove_prl_video
 	if [ -e "$TOOLS_BACKUP" ]; then
-		tell_user "Remove tools according to $TOOLS_BACKUP file"
-		while read line; do
-			# Kludge to fix previous buggy backup files on Fedora 19.
-			[ -f "$line" ] || line=$(echo $line | sed 's/^‘\(.*\)’$/\1/')
-			# Kludge to support case when 64-bit Ubuntu 11.04
-			# was updated to 11.10: symlink /usr/lib64 was removed.
-			[ -f "$line" ] || line=${line/usr\/lib64/usr\/lib}
-			echo " rm $line"
-			rm -f "$line"
-		done < "$TOOLS_BACKUP"
+		remove_by_list "$TOOLS_BACKUP"
 		rm -f "$TOOLS_BACKUP"
 	fi
 
@@ -616,26 +621,6 @@ remove_tools_modules() {
 	update_icon_cache
 
 	rmdir '/etc/prltools'
-
-	if [ $skip_xconf_removal -eq 1 ]; then
-		tell_user "Removing of X server configuration is skipped."
-		# we also should not delete directory with tools case backups are stored there
-		return 0
-	fi
-
-	if [ -e "$XCONF_BACKUP" ]; then
-		tell_user "Restore X server configuration file according to $XCONF_BACKUP"
-		. "$XCONF_BACKUP"
-		if [ -z "$BACKUP_XBCONF" ]; then
-			rm -f "$BACKUP_XCONF"
-		else
-			[ -e "$BACKUP_XBCONF" ] && mv -f "$BACKUP_XBCONF" "$BACKUP_XCONF"
-		fi
-		# Now we do not remove "evdev_drv.so" driver, but previously we could do this.
-		# Thus, leave this string for compatibility with previous versions of Guest Tools.
-		[ -e "$BACKUP_XBEVDEV" ] && mv -f "$BACKUP_XBEVDEV" "$BACKUP_XEVDEV"
-		rm -f "$XCONF_BACKUP"
-	fi
 
 	# Attempt to remove INITD_DIR, as it may have been
 	# created by our installer (in case of Arch/Manjaro)
@@ -687,82 +672,6 @@ cmp_xorg_ver() {
 	[ $lv $op $rv ]
 }
 
-# Prints path to X11 configuration file
-find_xorgconf() {
-	# Starting from Xorg 1.6 Xorg configs may stored in xorg.conf.d.
-	local xorg_conf_d="/usr/share/X11/xorg.conf.d /usr/lib/X11/xorg.conf.d"
-	for d in $xorg_conf_d; do
-		if [ -d "$d" ]; then
-			echo "$d/40-prltools.conf"
-			return
-		fi
-	done
-
-	local xdir=""
-	local xcfg=""
-
-	# Search through all possible directories and X server configuration file
-	local xorg_conf_dirs="/etc \
-		/etc/X11 \
-		/usr/etc \
-		/usr/etc/X11 \
-		/usr/lib/X11 \
-		/usr/X11R6/etc \
-		/usr/X11R6/etc/X11 \
-		/usr/X11R6/lib/X11"
-
-	local xorg_conf_files="xorg.conf xorg.conf-4"
-	local xorg_conf_default="/etc/X11/xorg.conf"
-
-	for d in $xorg_conf_dirs; do
-		for f in $xorg_conf_files; do
-			if [ -e "$d/$f" ]; then
-				xdir="$d"
-				xcfg="$f"
-				break 2
-			fi
-		done
-	done
-
-	if ([ -n "$xdir" ] && [ -n "$xcfg" ]); then
-		echo "$xdir/$xcfg"
-	else
-		echo "$xorg_conf_default"
-	fi
-}
-
-configure_x_server() {
-	local xconf=$1
-	local xbconf=''
-	if [ -f "$xconf" ]; then
-		xbconf="$BACKUP_DIR/.${xconf##*/}"
-		cp -f "$xconf" "$xbconf"
-
-		echo "X server config: $xconf"
-	else
-		# X server config doesn't exist
-		# So value of xbconf will be empty
-		echo "X server config: $xconf (doesn't exist)"
-	fi
-
-	# ... and save information about X server configuration files
-	echo "BACKUP_XCONF=$xconf"	>>	"$XCONF_BACKUP"
-	echo "BACKUP_XBCONF=$xbconf"	>>	"$XCONF_BACKUP"
-
-	# Fedora since 25 doesn't ship python2 at all
-	# python command is also absent, python3 is the only option
-	local configure_x_server="$INSTALLER_DIR/xserver-config.py"
-	if type python3 2>/dev/null; then
-		python3 "$configure_x_server" "xorg" "$XVERSION" "$xbconf" "$xconf"
-	else
-		python "$configure_x_server" "xorg" "$XVERSION" "$xbconf" "$xconf"
-	fi
-	if [ "x$?" != "x0" ]; then
-		cp -f "$xbconf" "$xconf"
-		return 1
-	fi
-}
-
 install_file() {
 	local src=$1
 	local dst=$2
@@ -775,6 +684,17 @@ install_symlink() {
 	local lnk=$2
 	[ -d "$lnk" ] && lnk="${lnk}/${src##*/}"
 	ln -svf "$src" "$lnk" && echo "$lnk" >>"$TOOLS_BACKUP"
+}
+
+configure_x_server() {
+	for xcd in "${XORG_CONF_D[@]}"; do
+		[ -d "$xcd" ] || continue
+		install_file "${INSTALL_DIR_TOOLS}/prlmouse.conf" \
+				"${xcd}/90-prlmouse.conf"
+		install_file "${INSTALL_DIR_TOOLS}/parallels-tools.conf" \
+				"${xcd}/40-parallels-tools.conf"
+		break
+	done
 }
 
 install_x_modules() {
@@ -791,62 +711,11 @@ install_x_modules() {
 	local vid_drv='drivers/prlvideo_drv.so'
 	install_file "${TOOLS_BIN_DIR}/x-server/modules/${vid_drv}" \
 			"${XMODULES_DIR}/${vid_drv}"
-}
 
-# Configuring udev via hal scripts
-install_hal_policy() {
-	local hal_policy="/usr/share/hal/fdi/policy"
-	if [[ ! -d "$hal_policy" ]]; then
-		echo "Directory '${hal_policy}' doesn't exist," \
-			"skip x11-parallels.fdi installation"
-		return
-	fi
-
-	local hal_other="${hal_policy}/20thirdparty"
-	mkdir -p "$hal_other"
-	local x11prl="x11-parallels.fdi"
-
-	# Let's set this level, why not!
-	local level=20
-	install_file "$INSTALL_DIR_TOOLS/$x11prl" "$hal_other/$level-$x11prl"
-}
-
-apply_x_modules_fixes() {
-	# Starting from XServer 1.4 we are must configure udev,
-	# in this purposes we will setup hall/udev rules
-
-	install_hal_policy
-
-	# Configuring udev via rules
-	local udev_dir="/lib/udev/rules.d"
+	local udev_dir="/etc/udev/rules.d"
 	local xorgprlmouse="xorg-prlmouse.rules"
 	local level=69
 	install_file "$INSTALL_DIR_TOOLS/$xorgprlmouse" "$udev_dir/$level-$xorgprlmouse"
-
-	xorgprlmouse="prlmouse.conf"
-	level=90
-	udev_dir="/usr/lib/X11/xorg.conf.d"
-	if [ -d "$udev_dir" ]; then
-		install_file "$INSTALL_DIR_TOOLS/$xorgprlmouse" "$udev_dir/$level-$xorgprlmouse"
-	fi
-	udev_dir="/usr/lib64/X11/xorg.conf.d"
-	if [ -d "$udev_dir" ]; then
-		install_file "$INSTALL_DIR_TOOLS/$xorgprlmouse" "$udev_dir/$level-$xorgprlmouse"
-	fi
-	udev_dir="/usr/share/X11/xorg.conf.d"
-	if [ -d "$udev_dir" ]; then
-		install_file "$INSTALL_DIR_TOOLS/$xorgprlmouse" "$udev_dir/$level-$xorgprlmouse"
-	fi
-	udev_dir="/etc/X11/xorg.conf.d"
-	if [ -d "$udev_dir" ]; then
-		install_file "$INSTALL_DIR_TOOLS/$xorgprlmouse" "$udev_dir/$level-$xorgprlmouse"
-	fi
-
-	# Fix-up video driver name: now should be again "prlvideo" (for upgrade PD15-RC->PD15-GM)
-	if grep -q 'Driver[[:space:]]\+"prlvid"' "$xconf"; then
-		echo "Fixing up video driver name to 'prlvideo' in '${xconf}'"
-		sed -i 's/Driver[[:space:]]\+"prlvid"/Driver\t"prlvideo"/' "$xconf"
-	fi
 }
 
 # Setup launcher into users's session in all available DEs
@@ -932,15 +801,21 @@ install_selinux_module() {
 
 src_prl_bin_path() {
 	local arch=$1
-	if [ "$arch" = 'x86_64' ]; then
-		echo "$TOOLS_BIN_DIR_64"
-		return
+
+	if [ "$ARCH" = 'aarch64' ]; then
+		[ "$arch" = 'aarch64' ] && echo "$TOOLS_BIN_DIR_ARM64"
+		return $?
+	else
+		if [ "$arch" = 'x86_64' ]; then
+			echo "$TOOLS_BIN_DIR_64"
+			return 0
+		elif [[ "$arch" =~ ^i.86$ ]]; then
+			echo "$TOOLS_BIN_DIR_32"
+			return 0
+		fi
 	fi
-	if [ "$arch" = 'aarch64' ]; then
-		echo "$TOOLS_BIN_DIR_ARM64"
-		return
-	fi
-	echo "$TOOLS_BIN_DIR_32"
+
+	return 1
 }
 
 get_lib_path() {
@@ -969,6 +844,7 @@ get_ld_entries() {
 }
 
 install_gl_libs() {
+	local lib_name=$1
 	local ld_entries=`get_ld_entries 'libGL.so.1'`
 	if [ -z "$ld_entries" ]; then
 		echo 'Warning: libGL.so.1 has not found in the system'
@@ -980,25 +856,29 @@ install_gl_libs() {
 		local gl_path=`get_lib_path "$ld_entry"`
 		local gl_arch=`get_lib_arch "$ld_entry"`
 
-		for lib_name in 'libPrlDRI.so.1' 'libPrlWl.so.1'; do
-			local lib_echo="${lib_name} (${gl_arch})"
+		local lib_echo="${lib_name} (${gl_arch})"
 
-			local lib_src=`src_prl_bin_path "$gl_arch"`
-			if [ -z "$lib_src" ]; then
-				echo "Error: not able to install ${lib_echo}."
-				return 1
-			fi
-			lib_src="${lib_src}/lib/${lib_name}.0.0"
+		local lib_src
+		lib_src=`src_prl_bin_path "$gl_arch"`
+		if [ $? -ne 0 ]; then
+			echo "Warning: skipping ${lib_echo} - arch unsupported"
+			continue
+		fi
+		if [ -z "$lib_src" ]; then
+			echo "Error: not able to install ${lib_echo}."
+			return 1
+		fi
+		lib_src="${lib_src}/lib/${lib_name}.0.0"
 
-			echo "Installing ${lib_echo} ..."
-			local lib_dst="${gl_path%/*}/${lib_name}"
-			install_file "$lib_src" "$lib_dst"
-			if [ $? -ne 0 ]; then
-				perror "Error: failed to install ${lib_echo}"
-				return 1
-			fi
-		done
+		echo "Installing ${lib_echo} ..."
+		local lib_dst="${gl_path%/*}/${lib_name}"
+		install_file "$lib_src" "$lib_dst"
+		if [ $? -ne 0 ]; then
+			perror "Error: failed to install ${lib_echo}"
+			return 1
+		fi
 	done
+	unset IFS
 
 	echo 'Running ldconfig...'
 	ldconfig
@@ -1006,7 +886,7 @@ install_gl_libs() {
 }
 
 install_compiz_plugin() {
-	if [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ] && [ -d "/usr/lib64" ]; then
+	if [ "$ARCH" = "x86_64" ] && [ -d "/usr/lib64" ]; then
 		local compizdir_target="/usr/lib64/compiz"
 	else
 		local compizdir_target="/usr/lib/compiz"
@@ -1059,8 +939,7 @@ install_gnome_coherence_extension() {
 	mkdir -p "$dest_path"
 
 	local src_path="$INSTALL_DIR_TOOLS/gnome-coherence"
-	local src_files="extension.js metadata.json stylesheet.css"
-	for f in $src_files; do
+	for f in 'extension.js' 'metadata.json' 'stylesheet.css'; do
 		if ! install_file "$src_path"/"$f" "$dest_path"; then
 			perror "Failed to install file $src_path/$f"
 			return $E_IFAIL
@@ -1088,7 +967,49 @@ init_x_server_info() {
 	return $E_NOERROR
 }
 
-install_and_configure_x() {
+use_prl_video() {
+	[ "$ARCH" = 'aarch64' ] && return 1
+
+	if [ -z "$USE_PRL_VIDEO" ]; then
+		local kver=$(uname -r |
+			sed 's/^\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\)[^0-9].*/\1 \2 \3/')
+		kver=$(printf '%02d%02d%02d' $kver)
+		[[ $kver < 051000 ]] && USE_PRL_VIDEO=1 || USE_PRL_VIDEO=0
+	fi
+	[ $USE_PRL_VIDEO -eq 1 ]
+}
+
+prl_video_installed() {
+	[ -r "$VIDEO_BACKUP" ]
+}
+
+reload_udev() {
+	# we need to force reloading of the udev rules and
+	# reinitialization of devices in order to make X server
+	# able to use correct driver for our mouse
+	if type udevadm >/dev/null 2>&1; then
+		udevadm control --reload-rules && udevadm trigger
+		echo "udevadm exited with status $?"
+	fi
+}
+
+save_xorg_version() {
+	local xorg_ver
+
+	xorg_ver=$("$INSTALLER_DIR/detect-xserver.sh" --xver)
+	if [ $? -ne 0 ]; then
+		perror 'Failed to detect Xorg version'
+		return 1
+	fi
+
+	echo "$xorg_ver" >"$IBACKUP_DIR/xorg.version"
+}
+
+install_prl_video() {
+	local tools_backup_saved=$TOOLS_BACKUP
+	trap "TOOLS_BACKUP=$tools_backup_saved" RETURN
+	TOOLS_BACKUP=$VIDEO_BACKUP
+
 	init_x_server_info
 	local rc=$?
 	if [ $rc -eq $E_NOXSERV ]; then
@@ -1097,18 +1018,11 @@ install_and_configure_x() {
 	fi
 	[ $rc -ne 0 ] && return $rc
 
-	local xconf=$(find_xorgconf)
-	if [[ $UPDATE_MODE -eq 1 ]] && check_xconf_patched "$xconf"; then
-		tell_user "X server configuration was skipped"
-	elif [ "$ARCH" = 'aarch64' ]; then
-		tell_user "Temporary skip X server configuration for ARM architecture"
-	else
-		configure_x_server "$xconf"
-		local result=$?
-		if [ $result -ne $E_NOERROR ]; then
-			perror "Error: could not configure X server"
-			return $result
-		fi
+	configure_x_server
+	local result=$?
+	if [ $result -ne $E_NOERROR ]; then
+		perror "Error: could not configure X server"
+		return $result
 	fi
 
 	install_x_modules "$XMODULES_SRC_DIR"
@@ -1118,7 +1032,6 @@ install_and_configure_x() {
 		return $result
 	fi
 
-	apply_x_modules_fixes "$xconf"
 	install_compiz_plugin
 
 	# Here we install and enable gnome coherence
@@ -1131,32 +1044,28 @@ install_and_configure_x() {
 		return $result
 	fi
 
-	if ! install_gl_libs; then
+	if ! install_gl_libs 'libPrlDRI.so.1'; then
 		perror 'Error: could not install common GL libraries'
 		return 1
 	fi
 
-	setup_session_launcher "${INSTALL_DIR_TOOLS}/prlcc.desktop"
-
-	# we need to force reloading of the udev rules and
-	# reinitialization of devices in order to make X server
-	# able to use correct driver for our mouse
-	if type udevadm >/dev/null 2>&1; then
-		udevadm control --reload-rules && udevadm trigger
-		echo "udevadm exited with status $?"
-	fi
-
-	if [ -d "$ICONS_DIR" ]; then
-		local tools_icon="parallels-tools.png"
-		local icon="$INSTALL_DIR_TOOLS/$tools_icon"
-		local icon_target="$ICONS_DIR/48x48/apps/$tools_icon"
-		if [ -e "$icon" ]; then
-			install_file "$icon" "$icon_target"
-		fi
-		update_icon_cache
-	fi
+	install_selinux_module "$INSTALLER_DIR/prlvtg.te"
+	reload_udev
+	save_xorg_version
 
 	return 0
+}
+
+remove_prl_video() {
+	'/usr/sbin/prl-opengl-switcher.sh' --off
+
+	[ -r "$VIDEO_BACKUP" ] || return 0
+
+	tell_user 'Uninstalling Parallels video stack'
+
+	remove_by_list "$VIDEO_BACKUP"
+	rm -f "$VIDEO_BACKUP"
+	reload_udev
 }
 
 install_tools_service() {
@@ -1182,10 +1091,17 @@ install_tools_service() {
 }
 
 install_tools_modules() {
-	install_and_configure_x
-	result=$?
-	if [ $result -ne $E_NOERROR ]; then
-		return $result
+	if ! install_gl_libs 'libPrlWl.so.1'; then
+		perror 'Error: could not install common libraries'
+		return 1
+	fi
+
+	if use_prl_video; then
+		install_prl_video
+		result=$?
+		if [ $result -ne $E_NOERROR ]; then
+			return $result
+		fi
 	fi
 
 	#prepare for shared folders features using
@@ -1211,8 +1127,6 @@ install_tools_modules() {
 		done
 	fi
 
-	install_selinux_module "$INSTALLER_DIR/prlvtg.te"
-
 	# Install time sync tool
 	local timesync="$TOOLS_BIN_DIR/bin/prltimesync"
 	install_file "$timesync" "$BIN_DIR/prltimesync"
@@ -1223,7 +1137,7 @@ install_tools_modules() {
 	# Install Parallels Tools services
 	install_file "$TOOLS_BIN_DIR/bin/$TOOLSD" "$BIN_DIR/$TOOLSD"
 	(
-		for svc in "$TOOLSD" "$XTOOLS" "$UTOOLS"; do
+		for svc in "$TOOLSD" 'prltools-reconfig'; do
 			install_tools_service "$svc" || exit $?
 		done
 	)
@@ -1291,17 +1205,11 @@ install_tools_modules() {
 	local usmd="$TOOLS_BIN_DIR/bin/prlusmd"
 	install_file "$usmd" "$BIN_DIR/prlusmd"
 
-	# Install xorg.conf fixer
-	local xorgfix="$TOOLS_BIN_DIR/sbin/prl-xorgconf-fixer"
-	install_file "$xorgfix" "$SBIN_DIR/prl-xorgconf-fixer"
+	setup_session_launcher "${INSTALL_DIR_TOOLS}/prlcc.desktop"
 
 	# Install OpenGL switcher
 	local openglsw="$TOOLS_BIN_DIR/sbin/$OPENGL_SWITCHER"
 	install_file "$openglsw" "$SBIN_DIR/$OPENGL_SWITCHER"
-
-	# Install Parallels Tools updater
-	local prltoolsup="$TOOLS_BIN_DIR/sbin/prltools_updater.sh"
-	install_file "$prltoolsup" "$SBIN_DIR/prltools_updater.sh"
 
 	# Man-page for prl_fs
 	local manpage_name='mount.prl_fs.8'
@@ -1322,33 +1230,22 @@ install_tools_modules() {
 
 	install_ptiagent_starters
 
-	return $E_NOERROR
-}
+	if [ -d "$ICONS_DIR" ]; then
+		local tools_icon="parallels-tools.png"
+		local icon="$INSTALL_DIR_TOOLS/$tools_icon"
+		local icon_target="$ICONS_DIR/48x48/apps/$tools_icon"
+		if [ -e "$icon" ]; then
+			install_file "$icon" "$icon_target"
+		fi
+		update_icon_cache
+	fi
 
-check_xconf_patched() {
-	local xconf=$1
-
-	# Will return false if there's no info about xorg.conf backup _and_ there's no prlmouse entry
-	[ -f "$XCONF_BACKUP" ] || grep -qs '^\W*Driver\W+"prlmouse"' "$xconf" || return $E_BFAIL
-
-	# Bug in case of presense of smth metioned above - consider xorg.conf is patched
 	return $E_NOERROR
 }
 
 remove_gt() {
 	result=$E_NOTOOLS
 	n=0
-	if [ -d "$INSTALL_DIR/.backup" ]; then
-		echo "old version of parallels tools"
-		BACKUP_DIR="$INSTALL_DIR/.backup"
-	else
-		echo "new version of parallels tools"
-		BACKUP_DIR="$IBACKUP_DIR/.backup"
-	fi
-	XCONF_BACKUP="$BACKUP_DIR/.xconf.info"
-	TOOLS_BACKUP="$BACKUP_DIR/.tools.list"
-	PSF_BACKUP="$BACKUP_DIR/.psf"
-	SLP_BACKUP="$BACKUP_DIR/.${SLP_NAME}.selinux"
 
 	if [ "$ARCH" != "aarch64" ]; then
 		rm -f "$MODPROBED_DIR/blacklist-parallels.conf"
@@ -1371,13 +1268,9 @@ remove_gt() {
 		UPDATE_MODE=0
 		return $E_NOERROR
 	fi
-
 	echo "Found Guest Tools directory: $INSTALL_DIR"
-	# Remove user space modules
-	local remove_mode
-	[ $UPDATE_MODE -eq 1 ] && [ "x$1" != "x-f" ] && remove_mode='--skip-xconf'
 
-	remove_tools_modules "$remove_mode"
+	remove_tools_modules
 
 	# Check... should we completely remove Guest Tools?
 	if ([ "$1" = "-f" ] || [ "$BASE_DIR" != "$INSTALL_DIR" ]); then
@@ -1545,8 +1438,6 @@ install_guest_tools() {
 	echo "Perform installation into the $INSTALL_DIR directory"
 	# Create installation directory and copy files
 	mkdir -p "$INSTALL_DIR"
-	# Set up new style backup_dir
-	BACKUP_DIR="$IBACKUP_DIR/.backup"
 	# Create directory for backup files
 	mkdir -p "$BACKUP_DIR"
 
@@ -1575,11 +1466,6 @@ install_guest_tools() {
 	cp -Rf "$INSTALL" "$INSTALL_DIR"
 	cp -Rf "$INSTALL_GUI" "$INSTALL_DIR"
 	cp -Rf "$BASE_DIR/version" "$INSTALL_DIR"
-	[[ $UPDATE_MODE -eq 1 ]] &&
-		if [ -d "$INSTALL_DIR/.backup" ]; then
-			cp -Rf "$INSTALL_DIR/.backup" "$IBACKUP_DIR" &&
-				rm -rf "$INSTALL_DIR/.backup"
-		fi
 
 	# Install blacklist and override ne2k-pci by our prl_eth
 	if [ -d "$MODPROBED_DIR" ]; then
@@ -1664,16 +1550,14 @@ post_install() {
 	echo ">>> Postinstall"
 	echo "Writing OS version and Xorg version"
 	"$PMANAGER" --os-ver > "$IBACKUP_DIR/os.version"
-	"$INSTALLER_DIR/detect-xserver.sh" --xver \
-			>"$IBACKUP_DIR/xorg.version" 2>/dev/null
 	if systemd_enabled; then
 		echo "Enabling PRL_GL"
-		systemctl start prl-x11
+		systemctl start 'prltools-reconfig'
 		echo "Starting prltoolsd service:"
 		systemctl start prltoolsd
 	else
 		echo "Enabling PRL_GL"
-		/etc/init.d/prl-x11 start
+		/etc/init.d/prltools-reconfig start
 		echo "Starting prltoolsd service:"
 		/etc/init.d/prltoolsd start
 	fi
@@ -1796,7 +1680,7 @@ install_x_tools_modules() {
 	tell_user $(date)
 	tell_user "Starting installation of Parallels Tools for Linux X modules"
 	check_x_server_supported || return $?
-	install_and_configure_x
+	install_prl_video
 	local result=$?
 	if [ $result -eq 0 ]; then
 		tell_user "PTfL X modules installation finished successfully"
@@ -1804,6 +1688,47 @@ install_x_tools_modules() {
 		tell_user "PTfL X modules installation failed"
 	fi
 	return $result
+}
+
+check_xorg_changed() {
+	[ -r "$IBACKUP_DIR/xorg.version" ] || return 1
+	init_x_server_version || return 1
+
+	local xorg_saved_version=$(< "$IBACKUP_DIR/xorg.version")
+	[ -z "$xorg_saved_version" ] && return 1
+
+	cmp_xorg_ver -ne "$xorg_saved_version"
+}
+
+setup_gl_libs() {
+	local show_vm_cfg='/usr/bin/prl_showvmcfg'
+	local opengl_switcher='/usr/sbin/prl-opengl-switcher.sh'
+
+	echo 'Setting up GL libs'
+
+	if [ ! -x "$show_vm_cfg" ]; then
+		perror "'${show_vm_cfg}' is missing"
+		return 1
+	fi
+
+	if "$show_vm_cfg" | grep -q 'opengl-support:[[:space:]]*1$'; then
+		tell_user "Found OpenGL support in host; set up OpenGL libs in guest"
+		"$opengl_switcher" --on --egl
+	else
+		tell_user "No OpenGL support in host; skip set up OpenGL libs in guest"
+		"$opengl_switcher" --off
+	fi
+}
+
+reconfig() {
+	if use_prl_video; then
+		if ! prl_video_installed || check_xorg_changed; then
+			install_x_tools_modules || return 1
+		fi
+		setup_gl_libs
+	elif prl_video_installed; then
+		remove_prl_video
+	fi
 }
 
 # Install, upgrade or remove Guest Tools
@@ -1819,10 +1744,6 @@ fi
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--install-x-modules)
-			action="install_x_tools_modules"
-			;;
-
 		--install-ptiagent)
 			action="install_ptiagent"
 			;;
@@ -1864,6 +1785,10 @@ while [[ $# -gt 0 ]]; do
 
 		--check)
 			action='check_requirements'
+			;;
+
+		--reconfig)
+			action='reconfig'
 			;;
 
 		*)

@@ -16,6 +16,22 @@ PRL_NOTIFIER ?= prl_notifier/Installation/lnx/prl_notifier
 KVER ?= $(shell uname -r)
 KERNEL_DIR ?= /lib/modules/$(KVER)/build
 
+# Get version from version.h in kernel source directory
+ifeq "$(wildcard $(KERNEL_DIR)/include/linux/version.h)" ""
+	VERSION_H_PATH ?= $(KERNEL_DIR)/include/generated/uapi/linux/version.h
+else
+	VERSION_H_PATH ?= $(KERNEL_DIR)/include/linux/version.h
+endif
+VERSION_CODE := $(shell awk '/\#define[ \t]+LINUX_VERSION_CODE[ \t]\
+		*/ { print $$3 }' $(VERSION_H_PATH) | tail -n 1)
+
+ifndef PRL_VID_SKIP
+	ifeq ($(shell if [ $(VERSION_CODE) -ge 330240 -a -d $(PRL_VID) ]; then echo y; fi),y)
+		PRL_VID_SKIP = 1
+	endif
+endif
+
+
 # Get compiler version used for kernel build.
 KERNEL_CC_VER := $(shell cat /proc/version | grep -o -e 'cc \+version \+[0-9,\.]\+' | grep -o -e '[0-9,\.]\+')
 ifneq ($(findstring $(KERNEL_CC_VER), $(shell $(CC) --version | grep -e '^g*cc')),$(KERNEL_CC_VER))
@@ -35,8 +51,10 @@ ifeq ($(shell uname -m),aarch64)
 	cd ${PRL_NOTIFIER} && make CC=${CC}
 else
 	cd ${PRL_ETH} && make CC=$(CC)
+ifndef PRL_VID_SKIP
 	cp -f ${PRL_TG}/*.symvers ${PRL_VID} ||:
 	cd ${PRL_VID} && make CC=$(CC) KBUILD_EXTRA_SYMBOLS=${PRL_TG_SYMVERS}
+endif
 endif
 ifndef PRL_FREEZE_SKIP
 	cd ${PRL_FREEZE} && make CC=$(CC)
