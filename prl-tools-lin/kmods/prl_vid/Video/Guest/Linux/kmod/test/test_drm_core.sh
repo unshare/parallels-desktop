@@ -58,17 +58,17 @@ void test(void) {
 		(const struct drm_mode_fb_cmd2 *)NULL); /* mode_cmd */
 }"
 
-#	5.9 <= kernel
+#	4.12 <= kernel < 5.9
 T5_0="#include <drm/drm_gem.h>
 void test(void) {
-	drm_gem_object_put(
+	drm_gem_object_put_unlocked(
 		(struct drm_gem_object *)NULL);			/* obj */
 }"
 
-#	4.12 <= kernel < 5.9
+#	5.9 <= kernel
 T5_1="#include <drm/drm_gem.h>
 void test(void) {
-	drm_gem_object_put_unlocked(
+	drm_gem_object_put(
 		(struct drm_gem_object *)NULL);			/* obj */
 }"
 

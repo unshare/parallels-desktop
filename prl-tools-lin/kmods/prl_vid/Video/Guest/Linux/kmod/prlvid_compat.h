@@ -51,10 +51,10 @@
 
 #if (PRL_DRM_GEM_OBJECT_PUT_UNLOCKED_X == 1)
 	#define drm_gem_object_put_unlocked_X(a0) \
-		drm_gem_object_put((a0))
+		drm_gem_object_put_unlocked((a0))
 #elif (PRL_DRM_GEM_OBJECT_PUT_UNLOCKED_X == 2)
 	#define drm_gem_object_put_unlocked_X(a0) \
-		drm_gem_object_put_unlocked((a0))
+		drm_gem_object_put((a0))
 #else
 	#define drm_gem_object_put_unlocked_X(a0) \
 		drm_gem_object_unreference_unlocked((a0))
