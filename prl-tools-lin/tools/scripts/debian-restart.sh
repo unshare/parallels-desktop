@@ -62,7 +62,7 @@ ctl_nm() {
 
 	# In newer Ubuntu and Debian systemctl is a main system control tool
 	if type systemctl > /dev/null 2>&1; then
-		systemctl $1 network-manager
+		systemctl $1 NetworkManager
 		local code=$?
 		if [[ $code -ne 0 ]]; then
 			log_warn "systemctl $1 network-manager failed with code $code"
