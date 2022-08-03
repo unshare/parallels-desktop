@@ -15,11 +15,7 @@
 #	include <linux/crash_core.h>
 #	define REPORT_VMCOREINFO
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
 #include <asm-generic/pci_iomap.h>
-#else
-#include <asm-generic/iomap.h>
-#endif
 #include "prltg_common.h"
 #include "prltg_compat.h"
 #include "prltg_call.h"
@@ -249,11 +245,7 @@ static ssize_t prl_tg_write(struct file *filp, const char __user *buf,
 	size_t nbytes, loff_t *ppos)
 {
 	int ret = 0;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,17,0)
-	struct tg_dev *dev = pde_data(FILE_DENTRY(filp)->d_inode);
-#else
-	struct tg_dev *dev = PDE_DATA(FILE_DENTRY(filp)->d_inode);
-#endif
+	struct tg_dev *dev = prl_pde_data(FILE_DENTRY(filp)->d_inode);
 	void *ureq = NULL;
 	TG_REQ_DESC sdesc;
 	TG_REQUEST src;
@@ -382,7 +374,7 @@ static int prl_tg_initialize(struct tg_dev *dev)
 	}
 #endif
 	/* Set DMA ability. Only lower 4G is possible to address */
-	rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(64));
+	rc = prl_set_dma_mask(pdev, DMA_BIT_MASK(64));
 	if (rc) {
 		printk(KERN_ERR "no usable DMA configuration\n");
 		goto err_out;
@@ -417,23 +409,6 @@ err_out:
 out:
 	DPRINTK("EXIT, returning %d\n", rc);
 	return rc;
-}
-
-static struct proc_dir_entry *
-prltg_proc_create_data(char *name, umode_t mode, struct proc_dir_entry *parent,
-                       struct proc_ops *proc_ops, void *data)
-{
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
-	struct proc_dir_entry *p = create_proc_entry(name, mode, parent);
-	if (p)
-	{
-		p->proc_fops = proc_ops;
-		p->data = data;
-	}
-	return p;
-#else
-	return proc_create_data(name, mode, parent, proc_ops, data);
-#endif
 }
 
 static void send_vmcoreinfo(struct tg_dev *dev)
@@ -508,17 +483,15 @@ int prl_tg_probe_common(struct tg_dev *dev, board_t board,
 		char proc_file[16];
 		snprintf(proc_file, 16, "driver/%s", board_info[board].nick);
 
-		p = prltg_proc_create_data(proc_file,
+		p = proc_create_data(proc_file,
 			S_IWUGO | ((dev->board == VIDEO_TOOLGATE) ? S_IRUGO : 0), NULL,
 			proc_ops, dev);
-		if (p)
-			PROC_OWNER(p, THIS_MODULE);
-		else
+		if (!p)
 			printk(KERN_WARNING "cannot create %s proc entry\n", proc_file);
 	}
 
-	printk(KERN_INFO "detected %s, base addr %08lx, IRQ %d\n",
-		board_info[board].name, dev->base_addr, dev->irq);
+	printk(KERN_INFO "Detected %s device, IRQ %d\n",
+		board_info[board].name, dev->irq);
 
 out:
 	DPRINTK("EXIT, returning %d\n", rc);
@@ -643,7 +616,6 @@ static struct pci_driver prl_tg_pci_driver = {
 
 static int __init prl_tg_init_module(void)
 {
-	int rc;
 /* when a module, this is printed whether or not devices are found in probe */
 #ifdef MODULE
 	printk(version);

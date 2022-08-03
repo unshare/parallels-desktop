@@ -9,7 +9,7 @@ After=prltools-reconfig.service
 
 [Service]
 Type=forking
-ExecStart=/usr/lib/parallels-tools/installer/prltoolsd_sysv.sh start
+ExecStart=/usr/lib/parallels-tools/installer/prltoolsd.sh start
 PIDFile=/var/run/prltoolsd.pid
 
 [Install]

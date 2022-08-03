@@ -10,10 +10,8 @@
 #include <linux/compat.h>
 #include <video/vga.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
 #define PRLVTG_MMAP
 #include <linux/mm.h>
-#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)
 #include <linux/uaccess.h>
@@ -151,7 +149,7 @@ tg_in32(struct tg_dev *dev, unsigned long port)
 #if defined(__aarch64__)
 	x = ioread32(dev->base_addr + port);
 #else
-	x = inl(dev->base_addr + port);
+	x = inl((unsigned long)dev->base_addr + port);
 #endif
 	spin_unlock_irqrestore(&dev->lock, flags);
 	return (x);
@@ -166,7 +164,7 @@ tg_out32(struct tg_dev *dev, unsigned long port, u32 val)
 #if defined(__aarch64__)
 	iowrite32(val, dev->base_addr + port);
 #else
-	outl(val, dev->base_addr + port);
+	outl(val, (unsigned long)dev->base_addr + port);
 #endif
 	spin_unlock_irqrestore(&dev->lock, flags);
 }
@@ -176,7 +174,7 @@ tg_out(struct tg_dev *dev, unsigned long port, unsigned long long val)
 {
 	unsigned long flags;
 
-	port += dev->base_addr;
+	port += (unsigned long)dev->base_addr;
 	spin_lock_irqsave(&dev->lock, flags);
 
 #if defined(__aarch64__)

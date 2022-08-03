@@ -34,18 +34,4 @@
 
 #endif
 
-static struct proc_dir_entry *
-prlfs_proc_create(char *name, umode_t mode, struct proc_dir_entry *parent,
-                  struct proc_ops *proc_ops)
-{
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
-	struct proc_dir_entry *p = create_proc_entry(name, mode, parent);
-	if (p)
-		p->proc_fops = proc_ops;
-	return p;
-#else
-	return proc_create(name, mode, parent, proc_ops);
-#endif
-}
-
 #endif

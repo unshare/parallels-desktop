@@ -16,20 +16,9 @@
 #include <linux/pagemap.h>
 #include <linux/namei.h>
 #include <linux/cred.h>
+#include <linux/writeback.h>
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 40)) && \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0))
-/* Fedora 15 uses 2.6.4x kernel version enumeration instead of 3.x */
-#define __MINOR_3X_LINUX_VERSION LINUX_VERSION_CODE - KERNEL_VERSION(2, 6, 40)
-#undef LINUX_VERSION_CODE
-#define LINUX_VERSION_CODE KERNEL_VERSION(3, MINOR_3X_LINUX_VERSION, 0)
-#endif
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0)
 typedef umode_t prl_umode_t;
-#else
-typedef int prl_umode_t;
-#endif
 
 extern struct file_operations prlfs_file_fops;
 extern struct file_operations prlfs_dir_fops;
@@ -56,12 +45,6 @@ unsigned long *prlfs_dfl( struct dentry *de)
 	return (unsigned long *)&(de->d_fsdata);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
-#define prl_uaccess_kernel() uaccess_kernel()
-#else
-#define prl_uaccess_kernel() segment_eq(get_fs(), KERNEL_DS)
-#endif
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
 #define prlfs_user_ns (init_task.cred->user_ns)
 #define prlfs_setattr_copy(inode, attr) \
@@ -74,12 +57,11 @@ unsigned long *prlfs_dfl( struct dentry *de)
 #endif
 
 void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
-			    unsigned long long len, int write, int user)
+			    unsigned long long len, int write)
 {
 	bd->buf = buf;
 	bd->len = len;
 	bd->write = (write == 0) ? 0 : 1;
-	bd->user = (user == 0) ? 0 : prl_uaccess_kernel() ? 0 : 1;
 	bd->flags = TG_REQ_COMMON;
 }
 
@@ -102,43 +84,7 @@ void *prlfs_get_path(struct dentry *dentry, void *buf, int *plen)
 	DPRINTK("ENTER\n");
 	len = *plen;
 	p = buf;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
-	if ((dentry->d_name.len > NAME_MAX) || (len < 2)) {
-		p = ERR_PTR(-ENAMETOOLONG);
-		goto out;
-	}
-	p += --len;
-	*p = '\0';
-	spin_lock(&dcache_lock);
-	while (!IS_ROOT(dentry)) {
-		int nlen;
-		struct dentry *parent;
-
-                parent = dentry->d_parent;
-		prefetch(parent);
-		/* TODO Use prepend() here as well. */
-		nlen = dentry->d_name.len;
-		if (len < nlen + 1) {
-			p = ERR_PTR(-ENAMETOOLONG);
-			goto out_lock;
-		}
-		len -= nlen + 1;
-		p -= nlen;
-		memcpy(p, dentry->d_name.name, nlen);
-		*(--p) = '/';
-		dentry = parent;
-	}
-	if (*p != '/') {
-		*(--p) = '/';
-		--len;
-	}
-out_lock:
-	spin_unlock(&dcache_lock);
-	if (!IS_ERR(p))
-		*plen -= len;
-#else
 	p = dentry_path_raw(dentry, p, len);
-#endif
 	ret = prepend(&p, &len,
 		PRLFS_SB(dentry->d_sb)->name,
 		strlen(PRLFS_SB(dentry->d_sb)->name));
@@ -148,9 +94,6 @@ out_lock:
 		*plen = strnlen(p, PAGE_SIZE-1) + 1;
 	else
 		p = ERR_PTR(ret);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
-out:
-#endif
 	DPRINTK("EXIT returning %p\n", p);
 	return p;
 }
@@ -202,18 +145,12 @@ static int do_prlfs_getattr(struct dentry *dentry, struct prlfs_attr *attr)
 {
 	struct buffer_descriptor bd;
 	PRLFS_STD_INODE_HEAD(dentry)
-	init_buffer_descriptor(&bd, attr, PATTR_STRUCT_SIZE, 1, 0);
+	init_buffer_descriptor(&bd, attr, PATTR_STRUCT_SIZE, 1);
 	ret = host_request_attr(sb, p, buflen, &bd);
 	PRLFS_STD_INODE_TAIL
 }
 
 #define SET_INODE_TIME(t, time)	do { (t).tv_sec = (time); } while (0)
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37)
-#define SET_INODE_INO(inode, ino) do { } while (0)
-#else
-#define SET_INODE_INO(inode, ino) do { (inode)->i_ino = ino; } while (0)
-#endif
 
 static void prlfs_change_attributes(struct inode *inode,
 				    struct prlfs_attr *attr)
@@ -245,7 +182,7 @@ static void prlfs_change_attributes(struct inode *inode,
 			inode->i_gid = prl_make_kgid(attr->gid);
 	}
 	if (sbi->host_inodes && (attr->valid & _PATTR2_INO)) {
-		SET_INODE_INO(inode, attr->ino);
+		inode->i_ino = attr->ino;
 	}
 	return;
 }
@@ -310,12 +247,9 @@ static int prlfs_mknod(struct inode *dir, struct dentry *dentry,
 static int prlfs_create(struct user_namespace *mnt_userns,
                         struct inode *dir, struct dentry *dentry,
                         prl_umode_t mode, bool excl)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
-static int prlfs_create(struct inode *dir, struct dentry *dentry,
-                        prl_umode_t mode, bool excl)
 #else
 static int prlfs_create(struct inode *dir, struct dentry *dentry,
-                        prl_umode_t mode, struct nameidata *nd)
+                        prl_umode_t mode, bool excl)
 #endif
 {
 	int ret;
@@ -328,13 +262,8 @@ static int prlfs_create(struct inode *dir, struct dentry *dentry,
         return ret;
 }
 
-static struct dentry *prlfs_lookup(struct inode *dir, struct dentry *dentry
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
-			, unsigned int flags
-#else
-			, struct nameidata *nd
-#endif
-	)
+static struct dentry *prlfs_lookup(struct inode *dir, struct dentry *dentry,
+			unsigned int flags)
 {
 	int ret;
 	struct prlfs_attr *attr = 0;
@@ -476,9 +405,6 @@ static int prlfs_inode_setattr(struct inode *inode, struct iattr *attr)
 {
 	int ret = 0;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
-	ret = inode_setattr(inode, attr);
-#else
 	if ((attr->ia_valid & ATTR_SIZE &&
 			attr->ia_size != i_size_read(inode))) {
 		ret = inode_newsize_ok(inode, attr->ia_size);
@@ -489,7 +415,6 @@ static int prlfs_inode_setattr(struct inode *inode, struct iattr *attr)
 	prlfs_setattr_copy(inode, attr);
 	mark_inode_dirty(inode);
 out:
-#endif
 	return ret;
 }
 
@@ -516,7 +441,7 @@ static int prlfs_setattr(struct dentry *dentry, struct iattr *attr)
 		ret = - ESTALE;
 		goto out_free_pattr;
 	}
-	init_buffer_descriptor(&bd, pattr, PATTR_STRUCT_SIZE, 0, 0);
+	init_buffer_descriptor(&bd, pattr, PATTR_STRUCT_SIZE, 0);
 	ret = host_request_attr(sb, p, buflen, &bd);
 	if (ret == 0)
 		ret = prlfs_inode_setattr(dentry->d_inode, attr);
@@ -568,13 +493,7 @@ out:
 	return ret;
 }
 
-static int prlfs_d_revalidate(struct dentry *dentry,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,6,0)
-					struct nameidata *nd
-#else
-					unsigned int flags
-#endif
-	)
+static int prlfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 {
 	int ret;
 
@@ -682,7 +601,7 @@ static int prlfs_permission(struct user_namespace *mnt_userns,
 
 	return __prlfs_permission(inode, mask);
 }
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+#else
 static int prlfs_permission(struct inode *inode, int mask)
 {
 	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
@@ -691,28 +610,6 @@ static int prlfs_permission(struct inode *inode, int mask)
 		return -ECHILD;
 	if (!sbi->share)
 		return generic_permission(inode, mask);
-
-	return __prlfs_permission(inode, mask);
-}
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38)
-static int prlfs_permission(struct inode *inode, int mask, unsigned int flags)
-{
-	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
-
-	if (flags & IPERM_FLAG_RCU)
-		return -ECHILD;
-	if (!sbi->share)
-		return generic_permission(inode, mask, flags, NULL);
-
-	return __prlfs_permission(inode, mask);
-}
-#else
-static int prlfs_permission(struct inode *inode, int mask)
-{
-	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
-
-	if (!sbi->share)
-		return generic_permission(inode, mask, NULL);
 
 	return __prlfs_permission(inode, mask);
 }
@@ -848,17 +745,13 @@ struct inode_operations prlfs_symlink_iops = {
 };
 
 ssize_t prlfs_rw(struct inode *inode, char *buf, size_t size,
-		                loff_t *off, unsigned int rw, int user, int flags);
+		                loff_t *off, unsigned int rw, int flags);
 
 
 int prlfs_readpage(struct file *file, struct page *page) {
 	char *buf;
 	ssize_t ret;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
 	struct inode *inode = file->f_inode;
-#else
-	struct inode *inode = file->f_dentry->d_inode;
-#endif
 	loff_t off = page->index << PAGE_SHIFT;
 
 	if (!file) {
@@ -868,7 +761,7 @@ int prlfs_readpage(struct file *file, struct page *page) {
 
 	if (!PageUptodate(page)) {
 		buf = kmap(page);
-		ret = prlfs_rw(inode, buf, PAGE_SIZE, &off, 0, 0, TG_REQ_PF_CTX);
+		ret = prlfs_rw(inode, buf, PAGE_SIZE, &off, 0, TG_REQ_PF_CTX);
 		if (ret < 0) {
 			kunmap(page);
 			unlock_page(page);
@@ -883,6 +776,13 @@ int prlfs_readpage(struct file *file, struct page *page) {
 	unlock_page(page);
 	return 0;
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
+static int prlfs_read_folio(struct file *file, struct folio *folio)
+{
+	return prlfs_readpage(file, &folio->page);
+}
+#endif
 
 int prlfs_writepage(struct page *page, struct writeback_control *wbc) {
 	struct inode *inode = page->mapping->host;
@@ -899,7 +799,7 @@ int prlfs_writepage(struct page *page, struct writeback_control *wbc) {
 	buf = kmap(page);
 	ret = prlfs_rw(inode, buf,
 		       w_remainder < PAGE_SIZE ? w_remainder : PAGE_SIZE,
-		       &off, 1, 0, TG_REQ_COMMON);
+		       &off, 1, TG_REQ_COMMON);
 	kunmap(page);
 	if (ret < 0) {
 		rc =  -EIO;
@@ -929,7 +829,7 @@ static int prlfs_write_end(struct file *file, struct address_space *mapping,
 		zero_user(page, from + copied, len - copied);
 
 	buf = kmap(page);
-	ret = prlfs_rw(inode, buf + from, copied, &offset, 1, 0, TG_REQ_COMMON);
+	ret = prlfs_rw(inode, buf + from, copied, &offset, 1, TG_REQ_COMMON);
 	kunmap(page);
 
 	if (ret < 0)
@@ -950,22 +850,24 @@ out:
 }
 
 static const struct address_space_operations prlfs_aops = {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
+	.read_folio		= prlfs_read_folio,
+#else
 	.readpage		= prlfs_readpage,
+#endif
 	.writepage		= prlfs_writepage,
 	.write_begin    = simple_write_begin,
 	.write_end      = prlfs_write_end,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
+	.dirty_folio    = filemap_dirty_folio,
+#else
 	.set_page_dirty = __set_page_dirty_nobuffers,
+#endif
 };
 
 
 
-static int prlfs_root_revalidate(struct dentry *dentry,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,6,0)
-					struct nameidata *nd
-#else
-					unsigned int flags
-#endif
-	)
+static int prlfs_root_revalidate(struct dentry *dentry, unsigned int flags)
 {
 	return 1;
 }
@@ -1012,14 +914,14 @@ static struct inode *prlfs_get_inode(struct super_block *sb, prl_umode_t mode)
 			pfd = ERR_PTR(-ENOMEM);
 		inode_set_pfd(inode, pfd);
 
-		SET_INODE_INO(inode, get_next_ino());
+		inode->i_ino = get_next_ino();
 		switch (mode & S_IFMT) {
 		case S_IFDIR:
 			inode->i_op = &prlfs_dir_iops;
 			inode->i_fop = &prlfs_dir_fops;
 			break;
 		case 0: case S_IFREG:
-			prlfs_hlist_init(inode);
+			hlist_add_fake(&inode->i_hash);
 			inode->i_op = &prlfs_file_iops;
 			inode->i_fop =  &prlfs_file_fops;
 			break;

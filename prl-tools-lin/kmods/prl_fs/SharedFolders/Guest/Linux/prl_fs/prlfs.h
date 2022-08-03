@@ -18,9 +18,6 @@
 
 #include <linux/version.h>
 #ifdef RHEL_RELEASE_CODE
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 2)
-#define PRLFS_RHEL_6_2_GE 1
-#endif
 #if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)
 #define PRLFS_RHEL_7_3_GE 1
 #endif
@@ -37,11 +34,8 @@
 #else
 #include <linux/backing-dev.h>
 #endif
-#include <asm/uaccess.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,5,0)
 #include <linux/uidgid.h>
-#endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) || PRLFS_RHEL_8_4_GE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) || defined(PRLFS_RHEL_8_4_GE)
 #include <uapi/linux/mount.h>
 #endif
 
@@ -56,27 +50,10 @@
 
 
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
-
-typedef uid_t kuid_t;
-typedef gid_t kgid_t;
-
-#define prl_make_kuid(x) ((kuid_t)x)
-#define prl_make_kgid(x) ((kgid_t)x)
-#define prl_from_kuid(x) ((uid_t)x)
-#define prl_from_kgid(x) ((gid_t)x)
-
-#define uid_eq(x, y) (x == y)
-#define gid_eq(x, y) (x == y)
-
-#else
-
 #define prl_make_kuid(x) make_kuid(current_user_ns(), x)
 #define prl_make_kgid(x) make_kgid(current_user_ns(), x)
 #define prl_from_kuid(x) from_kuid(current_user_ns(), x)
 #define prl_from_kgid(x) from_kgid(current_user_ns(), x)
-
-#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 #define FILE_DENTRY(f) ((f)->f_path.dentry)
@@ -94,12 +71,6 @@ typedef gid_t kgid_t;
 #define prlfs_inode_lock(i) mutex_lock(&(i)->i_mutex)
 #define prlfs_inode_unlock(i) mutex_unlock(&(i)->i_mutex)
 
-#endif
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)
-#define prlfs_hlist_init(inode) hlist_add_fake(&(inode)->i_hash)
-#else
-#define prlfs_hlist_init(inode) do { (inode)->i_hash.pprev = &(inode)->i_hash.next; } while (0)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
@@ -158,12 +129,11 @@ struct buffer_descriptor {
 	void *buf;
 	unsigned long long len;
 	int write;
-	int user;
 	int flags;
 };
 
 void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
-			    unsigned long long len, int write, int user);
+			    unsigned long long len, int write);
 
 void *prlfs_get_path(struct dentry *dentry, void *buf, int *plen);
 
@@ -178,10 +148,6 @@ static inline struct tg_dev * PRLTG_SB(struct super_block *sb)
 }
 
 void prlfs_read_inode(struct inode *inode);
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
-#define d_set_d_op(_dentry, _d_op)	do { _dentry->d_op = _d_op; } while (0)
-#endif
 
 typedef u64 compat_statfs_block;
 
@@ -233,7 +199,7 @@ int host_request_symlink(struct super_block *sb, const void *src_path, int src_l
 #endif
 
 #define MODNAME		"prlfs"
-#define DRV_VERSION	"2.1.0"
+#define DRV_VERSION	"2.1.2"
 #define PFX		MODNAME ": "
 
 #define PRLFS_ROOT_INO 2

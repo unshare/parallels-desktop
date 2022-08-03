@@ -49,8 +49,6 @@
  *
  */
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39)
-
 struct inode *lookup_target(char *pathname)
 {
 	struct path path;
@@ -66,26 +64,6 @@ struct inode *lookup_target(char *pathname)
 	path_put(&path);
 	return inode;
 }
-
-#else
-
-struct inode *lookup_target(char *path)
-{
-	struct nameidata nd;
-	struct inode *inode;
-	int err;
-
-	err = path_lookup(path, LOOKUP_FOLLOW, &nd);
-	if (err)
-		return ERR_PTR(err);
-	inode = nd.path.dentry->d_inode;
-	if (inode)
-		inode = igrab(inode);
-	path_put(&nd.path);
-	return inode;
-}
-
-#endif
 
 struct frozen_sb {
 	struct list_head list;
@@ -357,7 +335,7 @@ int __init init_module(void)
 {
 	struct proc_dir_entry *entry;
 
-	entry = prlfs_freeze_proc_create("driver/prl_freeze", S_IFREG | 0664, NULL,
+	entry = proc_create("driver/prl_freeze", S_IFREG | 0664, NULL,
 		&freeze_ops);
 	if (!entry)
 		return -ENOMEM;

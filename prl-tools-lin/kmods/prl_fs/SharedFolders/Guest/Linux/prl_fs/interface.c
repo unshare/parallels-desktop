@@ -92,14 +92,13 @@ static void init_tg_request(TG_REQUEST *src, unsigned request,
 }
 
 static void init_tg_buffer(TG_REQ_DESC *sdesc, int bnum, void *buffer,
-		size_t size, int write, int user)
+		size_t size, int write)
 {
 	TG_BUFFER *sbuf = sdesc->sbuf + bnum;
 	sbuf->u.Buffer = buffer;
 	sbuf->ByteCount = size;
 	sbuf->Writable = (write == 0) ? 0 : 1;
-	if (user == 0)
-		prltg_buf_set_kernelspace(sdesc, bnum);
+	prltg_buf_set_kernelspace(sdesc, bnum);
 }
 
 int host_request_get_sf_list(struct tg_dev *dev, void *data, int size)
@@ -115,7 +114,7 @@ int host_request_get_sf_list(struct tg_dev *dev, void *data, int size)
 	blen = sizeof(struct prlfs_sf_parameters);
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_GETSFLIST, 0, 1);
 	init_req_desc(&sdesc, &Req.Req, NULL, &Req.Buffer);
-	init_tg_buffer(&sdesc, 0, data, size, 1, 0);
+	init_tg_buffer(&sdesc, 0, data, size, 1);
 	ret = call_tg_sync(dev, &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
@@ -136,8 +135,8 @@ int host_request_sf_param(struct tg_dev *dev, void *data, int size,
 	blen = sizeof(struct prlfs_sf_parameters);
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_GETSFPARM, 0, 2);
 	init_req_desc(&sdesc, &Req.Req, NULL, &Req.Buffer[0]);
-	init_tg_buffer(&sdesc, 0, (void *)psp, blen, 1, 0);
-	init_tg_buffer(&sdesc, 1, data, size, 1, 0);
+	init_tg_buffer(&sdesc, 0, (void *)psp, blen, 1);
+	init_tg_buffer(&sdesc, 1, data, size, 1);
 	ret = call_tg_sync(dev, &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
@@ -170,8 +169,8 @@ int host_request_attr(struct super_block *sb, const char *path, int psize,
 
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_ATTR, ibc, 2);
 	init_req_desc(&sdesc, &Req.Req, idata, tgb);
-	init_tg_buffer(&sdesc, 0, (void *)path, psize, 0, 0);
-	init_tg_buffer(&sdesc, 1, bd->buf, bd->len, bd->write, bd->user);
+	init_tg_buffer(&sdesc, 0, (void *)path, psize, 0);
+	init_tg_buffer(&sdesc, 1, bd->buf, bd->len, bd->write);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
@@ -210,8 +209,8 @@ int host_request_open(struct super_block *sb, struct prlfs_file_info *pfi,
 
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_OPEN, ibc, 2);
 	init_req_desc(&sdesc, &Req.Req, idata, tgb);
-	init_tg_buffer(&sdesc, 0, (void *)p, plen, 0, 0);
-	init_tg_buffer(&sdesc, 1, (void *)pfd, PFD_LEN, 1, 0);
+	init_tg_buffer(&sdesc, 0, (void *)p, plen, 0);
+	init_tg_buffer(&sdesc, 1, (void *)pfd, PFD_LEN, 1);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
@@ -239,7 +238,7 @@ retry:
 	memset(&Req, 0, sizeof(Req));
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_RELEASE, 0, 1);
 	init_req_desc(&sdesc, &Req.Req, NULL, &Req.Buffer);
-	init_tg_buffer(&sdesc, 0, (void *)pfd, PFD_LEN, 0, 0);
+	init_tg_buffer(&sdesc, 0, (void *)pfd, PFD_LEN, 0);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS)) {
 		if (Req.Req.Status == TG_STATUS_CANCELLED) {
@@ -273,8 +272,8 @@ int host_request_readdir(struct super_block *sb, struct prlfs_file_info *pfi,
 	memset(&Req, 0, sizeof(Req));
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_READDIR, 0, 2);
 	init_req_desc(&sdesc, &Req.Req, NULL, &Req.Buffer[0]);
-	init_tg_buffer(&sdesc, 0, (void *)pfd, PFD_LEN, 1, 0);
-	init_tg_buffer(&sdesc, 1, buf, *buflen, 1, 0);
+	init_tg_buffer(&sdesc, 0, (void *)pfd, PFD_LEN, 1);
+	init_tg_buffer(&sdesc, 1, buf, *buflen, 1);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if (ret == 0) {
 		if (Req.Req.Status == TG_STATUS_SUCCESS)
@@ -305,8 +304,8 @@ int host_request_rw(struct super_block *sb, struct prlfs_file_info *pfi,
 	memset(&Req, 0, sizeof(Req));
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_RW, 0, 2);
 	init_req_desc(&sdesc, &Req.Req, NULL, &Req.Buffer[0]);
-	init_tg_buffer(&sdesc, 0, (void *)pfd, PFD_LEN, 0, 0);
-	init_tg_buffer(&sdesc, 1, bd->buf, bd->len, bd->write, bd->user);
+	init_tg_buffer(&sdesc, 0, (void *)pfd, PFD_LEN, 0);
+	init_tg_buffer(&sdesc, 1, bd->buf, bd->len, bd->write);
 	sdesc.flags = bd->flags;
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if (ret == 0) {
@@ -344,7 +343,7 @@ int host_request_remove(struct super_block *sb, void *buf, int buflen)
 
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_REMOVE, ibc, 1);
 	init_req_desc(&sdesc, &Req.Req, idata, tgb);
-	init_tg_buffer(&sdesc, 0, buf, buflen, 0, 0);
+	init_tg_buffer(&sdesc, 0, buf, buflen, 0);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
@@ -378,8 +377,8 @@ int host_request_rename(struct super_block *sb, void *buf, size_t buflen,
 
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_RENAME, ibc, 2);
 	init_req_desc(&sdesc, &Req.Req, idata, tgb);
-	init_tg_buffer(&sdesc, 0, buf, buflen, 0, 0);
-	init_tg_buffer(&sdesc, 1, nbuf, nlen, 0, 0);
+	init_tg_buffer(&sdesc, 0, buf, buflen, 0);
+	init_tg_buffer(&sdesc, 1, nbuf, nlen, 0);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
@@ -445,8 +444,8 @@ int host_request_readlink(struct super_block *sb, void *src_path, int src_len,
 
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_READLNK, ibc, 2);
 	init_req_desc(&sdesc, &Req.Req, idata, tgb);
-	init_tg_buffer(&sdesc, 0, src_path, src_len, 0, 0);
-	init_tg_buffer(&sdesc, 1, tgt_path, tgt_len, 1, 0);
+	init_tg_buffer(&sdesc, 0, src_path, src_len, 0);
+	init_tg_buffer(&sdesc, 1, tgt_path, tgt_len, 1);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);
@@ -478,9 +477,9 @@ int host_request_symlink(struct super_block *sb, const void *src_path, int src_l
 	}
 	init_tg_request(&Req.Req, TG_REQUEST_FS_L_CREATELNK, ibc, 3);
 	init_req_desc(&sdesc, &Req.Req, idata, tgb);
-	init_tg_buffer(&sdesc, 0, &PRLFS_SB(sb)->sfid, sizeof(PRLFS_SB(sb)->sfid), 0, 0);
-	init_tg_buffer(&sdesc, 1, (void *)src_path, src_len, 0, 0);
-	init_tg_buffer(&sdesc, 2, (void *)tgt_path, tgt_len, 0, 0);
+	init_tg_buffer(&sdesc, 0, &PRLFS_SB(sb)->sfid, sizeof(PRLFS_SB(sb)->sfid), 0);
+	init_tg_buffer(&sdesc, 1, (void *)src_path, src_len, 0);
+	init_tg_buffer(&sdesc, 2, (void *)tgt_path, tgt_len, 0);
 	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
 	if ((ret == 0) && (Req.Req.Status != TG_STATUS_SUCCESS))
 		ret = -TG_ERR(Req.Req.Status);

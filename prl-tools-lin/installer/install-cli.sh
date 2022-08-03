@@ -248,7 +248,7 @@ check_requirements() {
 	local kver=$(uname -r |
 		sed 's/^\([0-9]\+\)\.\([0-9]\+\)\.\([0-9]\+\)[^0-9].*/\1 \2 \3/')
 	kver=$(printf '%02d%02d%02d' $kver)
-	if [[ $kver < 020629 ]]; then
+	if [[ $kver < 031000 ]]; then
 		perror "Error: current Linux kernel version '$(uname -r)' is outdated and not supported"
 		exit $E_NOLINUX
 	fi
@@ -312,8 +312,6 @@ remove_weak_updates() {
 }
 
 remove_kernel_modules() {
-	update_initramfs --remove
-
 	# Removing dkms modules. Should be done first cause dkms is too smart: it
 	# may restore removed modules by original path.
 	if type dkms > /dev/null 2>&1; then
@@ -323,10 +321,12 @@ remove_kernel_modules() {
 			# Unfortunately we cannot relay on dkms status retcode. So need to
 			# grep it's output. If there's nothing - there was no such modules
 			# registered.
-			dkms status -m $mod_name -v "$FULL_PRODUCT_VERSION" |
-				grep -q $mod_name || continue
-			dkms remove -m $mod_name -v "$FULL_PRODUCT_VERSION" --all &&
-				tell_user "DKMS modules were removed successfully"
+			if dkms status -m $mod_name -v "$FULL_PRODUCT_VERSION" |
+					grep -q $mod_name; then
+				dkms remove -m $mod_name -v "$FULL_PRODUCT_VERSION" --all &&
+					tell_user "DKMS modules were removed successfully"
+			fi
+			rm -rvf "/usr/src/${mod_name}-${FULL_PRODUCT_VERSION}"
 		done
 	fi
 
@@ -350,6 +350,9 @@ remove_kernel_modules() {
 		# Remove directory if it exists
 		[ -d "$kmod_dir" ] && rm -rf "$kmod_dir"
 	done
+
+	depmod -a
+	update_initramfs --remove
 }
 
 remove_kernel_modules_backup() {
@@ -558,6 +561,9 @@ remove_tools_modules() {
 		"$REGISTER_SERVICE" --remove 'prl-x11'
 		"$REGISTER_SERVICE" --remove 'prltools-reconfig'
 	fi
+	if ! use_prl_video; then
+		suspend_control unmask
+	fi
 
 	if [ -e "$TOOLSD_ISERVICE" ]; then
 		"$TOOLSD_ISERVICE" stop
@@ -684,6 +690,32 @@ install_symlink() {
 	local lnk=$2
 	[ -d "$lnk" ] && lnk="${lnk}/${src##*/}"
 	ln -svf "$src" "$lnk" && echo "$lnk" >>"$TOOLS_BACKUP"
+}
+
+suspend_control() {
+	local act=$1
+	local systemd_config_dir='/etc/systemd/sleep.conf.d'
+	local systemd_config_file='prl-nosuspend.conf'
+	local pm_config_dir='/etc/pm/sleep.d'
+	local pm_config_file="99prl-nosuspend"
+
+	if [ "$act" = "mask" ]; then
+		if systemd_enabled; then
+			mkdir -p ${systemd_config_dir}
+			install_file "${INSTALL_DIR_TOOLS}/${systemd_config_file}" "${systemd_config_dir}/${systemd_config_file}"
+		fi
+		if [[ -d /etc/pm/sleep.d/ ]]; then
+			install_file "${INSTALL_DIR_TOOLS}/${pm_config_file}" "${pm_config_dir}/${pm_config_file}"
+			chmod 755 "${pm_config_dir}/${pm_config_file}"
+		fi
+	elif [ "$act" = "unmask" ]; then
+		if systemd_enabled; then
+			rm -f "${systemd_config_dir}/${systemd_config_file}"
+		fi
+		if [[ -d /etc/pm/sleep.d/ ]]; then
+			rm -f "${pm_config_dir}/${pm_config_file}"
+		fi
+	fi
 }
 
 configure_x_server() {
@@ -885,68 +917,6 @@ install_gl_libs() {
 	return 0
 }
 
-install_compiz_plugin() {
-	if [ "$ARCH" = "x86_64" ] && [ -d "/usr/lib64" ]; then
-		local compizdir_target="/usr/lib64/compiz"
-	else
-		local compizdir_target="/usr/lib/compiz"
-	fi
-	if ! [ -d "$compizdir_target" ]; then
-		tell_user "Can't find compiz lib dir, skipping compiz pluing install"
-		return
-	fi
-	# Copy from main directory
-	local compizdir="$TOOLS_BIN_DIR/lib/compiz"
-	for lib in "$compizdir"/* ; do
-		[ -d "$lib" ] && continue # it's a dir, not a file
-		local libname=${lib##*/}
-		install_file "$lib" "$compizdir_target/$libname"
-	done
-
-	if ! [ -e /etc/os-release ]; then
-		# this is not Ubuntu 15.10, 16.04 or 16.10,
-		# thus we skip this step, since we have
-		# special plugin versions only for them
-		return
-	fi
-	local release=$(awk -F= '/PRETTY_NAME/ { print $2 }' \
-			/etc/os-release | tr -d '"')
-	# Copy from tagged sub directories
-	for dir in "$compizdir/"*; do
-		[ -d "$dir" ] || continue
-		# check if dir name is prefix of release, e.g.
-		# "Ubuntu 16.04" is prefix of "Ubuntu 16.04.1 LTS",
-		# with the latter being PRETTY_NAME of the release
-		# and the former our directory with needed compiz
-		# plugin libraries
-		[[ "$release" = "${dir##*/}"* ]] || continue
-		for lib in "$dir"/* ; do
-			install_file "$lib" "$compizdir_target/${lib##*/}"
-		done
-		break
-	done
-}
-
-install_gnome_coherence_extension() {
-	local ext_dir="/usr/share/gnome-shell/extensions"
-	if ! [[ -d "$ext_dir" ]]; then
-		tell_user "Cant't find Gnome Shell extensions dir, skipping plugin install"
-		return $E_NOERROR
-	fi
-
-	local ext_name="coherence-gnome-shell@parallels.com"
-	local dest_path="$ext_dir/$ext_name"
-	mkdir -p "$dest_path"
-
-	local src_path="$INSTALL_DIR_TOOLS/gnome-coherence"
-	for f in 'extension.js' 'metadata.json' 'stylesheet.css'; do
-		if ! install_file "$src_path"/"$f" "$dest_path"; then
-			perror "Failed to install file $src_path/$f"
-			return $E_IFAIL
-		fi
-	done
-}
-
 init_x_server_info() {
 	init_x_server_version || return $rc
 
@@ -1032,18 +1002,6 @@ install_prl_video() {
 		return $result
 	fi
 
-	install_compiz_plugin
-
-	# Here we install and enable gnome coherence
-	# extension. We enable it system-wide, for every
-	# user who launches gnome shell session.
-	install_gnome_coherence_extension
-	local result=$?
-	if [ $result -ne $E_NOERROR ]; then
-		perror "Fatal error during Gnome Coherence extension installation"
-		return $result
-	fi
-
 	if ! install_gl_libs 'libPrlDRI.so.1'; then
 		perror 'Error: could not install common GL libraries'
 		return 1
@@ -1079,7 +1037,7 @@ install_tools_service() {
 	fi
 
 	mkdir -p '/etc/init.d'
-	install_file "${INSTALLER_DIR}/${svc}_sysv.sh" "/etc/init.d/${svc}"
+	install_file "${INSTALLER_DIR}/${svc}.sh" "/etc/init.d/${svc}"
 	if upstart_enabled && grep -q -r "filesystem" '/etc/init'; then
 		local upstart_job="${svc}.conf"
 		install_file "${INSTALLER_DIR}/${upstart_job}" '/etc/init' &&
@@ -1366,12 +1324,7 @@ update_initramfs() {
 	if type dracut >/dev/null 2>&1 && [ -d "$dracut_conf_dir" ]; then
 		local dracut_conf_file="${dracut_conf_dir}/parallels-tools.conf"
 		if [ "$1" = '--install' ]; then
-			if [ "$ARCH" = "aarch64" ]; then
-				echo 'add_drivers+=" prl_tg "' >"$dracut_conf_file"
-			else
-				echo 'add_drivers+=" prl_tg prl_vid prl_eth "' >"$dracut_conf_file"
-			fi
-			echo 'omit_drivers+=" prl_fs prl_fs_freeze "' >>"$dracut_conf_file"
+			rm -vf "$dracut_conf_file"
 			dracut -f --regenerate-all
 		else
 			rm -f "$dracut_conf_file"
@@ -1561,6 +1514,10 @@ post_install() {
 		echo "Starting prltoolsd service:"
 		/etc/init.d/prltoolsd start
 	fi
+	if ! use_prl_video; then
+		echo "Mask suspend service unit (since virtio-gpu doesn't support suspend/resume):"
+		suspend_control mask
+	fi
 	echo_progress
 }
 
@@ -1724,10 +1681,12 @@ reconfig() {
 	if use_prl_video; then
 		if ! prl_video_installed || check_xorg_changed; then
 			install_x_tools_modules || return 1
+			suspend_control unmask
 		fi
 		setup_gl_libs
 	elif prl_video_installed; then
 		remove_prl_video
+		suspend_control mask
 	fi
 }
 

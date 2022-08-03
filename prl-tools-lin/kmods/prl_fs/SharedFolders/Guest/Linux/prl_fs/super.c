@@ -165,32 +165,21 @@ int prlfs_statfs(struct dentry *de, struct kstatfs *buf)
 static void prlfs_evict_inode(struct inode *inode) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,15,0)
 	truncate_inode_pages_final(&inode->i_data);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36) && LINUX_VERSION_CODE < KERNEL_VERSION(3,15,0)
+#else
 #ifdef PRLFS_RHEL_7_3_GE
 	if (inode->i_data.nrpages || inode->i_data.nrexceptional)
 #else
 	if (inode->i_data.nrpages)
 #endif
 		truncate_inode_pages(&inode->i_data, 0);
-#else
-	truncate_inode_pages(&inode->i_data, 0);
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36) && LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
-	end_writeback(inode);
-#else
 	clear_inode(inode);
-#endif
 	kfree(inode_get_pfd(inode));
 	inode_set_pfd(inode, NULL);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
 int prlfs_show_options(struct seq_file *seq, struct dentry *root) {
 	struct super_block *sb = root->d_sb;
-#else
-int prlfs_show_options(struct seq_file *seq, struct vfsmount *vfs) {
-	struct super_block *sb = vfs->mnt_sb;
-#endif
 	struct prlfs_sb_info *prlfs_sb = PRLFS_SB(sb);
 
 	seq_printf(seq, ",ttl=%u", prlfs_sb->ttl);
@@ -216,11 +205,7 @@ struct super_operations prlfs_super_ops = {
 	.statfs         = prlfs_statfs,
 	.remount_fs	= prlfs_remount,
 	.put_super	= prlfs_put_super,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36)
 	.evict_inode	= prlfs_evict_inode,
-#else
-	.delete_inode	= prlfs_evict_inode,
-#endif
 	.show_options	= prlfs_show_options,
 };
 
@@ -307,7 +292,7 @@ out:
 static int prlfs_bdi_init_and_register(struct super_block *sb, struct prlfs_sb_info *prlfs_sb) {
 	int ret = 0;
 
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32)
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 0)
 	prlfs_sb->bdi.name = "prlfs";
 	sb->s_bdi = &prlfs_sb->bdi;
 #endif
@@ -367,11 +352,7 @@ static int prlfs_fill_super(struct super_block *sb, void *data, int silent)
 		ret = -ENOMEM;
 		goto out_bdi;
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0)
 	sb->s_root = d_make_root(inode);
-#else
-	sb->s_root = d_alloc_root(inode);
-#endif
 	if (!sb->s_root) {
 		ret = -ENOMEM;
 		goto out_iput;
@@ -416,20 +397,6 @@ static void *extend_mount_data(void *data, const char *dev_name)
 	return ext_data;
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
-int prlfs_get_sb(struct file_system_type *fs_type,
-	int flags, const char *dev_name, void *data, struct vfsmount *mnt)
-{
-	int ret;
-	void *ext_data;
-	ext_data = extend_mount_data(data, dev_name);
-	if (NULL == ext_data)
-		return -ENOMEM;
-	ret = get_sb_nodev(fs_type, flags, ext_data, prlfs_fill_super, mnt);
-	kfree(ext_data);
-	return ret;
-}
-#else
 static struct dentry *prlfs_mount(struct file_system_type *fs_type,
 				  int flags, const char *dev_name,
 				  void *raw_data)
@@ -443,16 +410,11 @@ static struct dentry *prlfs_mount(struct file_system_type *fs_type,
 	kfree(ext_data);
 	return de;
 }
-#endif
 
 static struct file_system_type prl_fs_type = {
 	.owner		= THIS_MODULE,
 	.name		= "prl_fs",
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
-	.get_sb		= prlfs_get_sb,
-#else
 	.mount		= prlfs_mount,
-#endif
 	.kill_sb	= kill_anon_super,
 	/*  .fs_flags */
 };
@@ -583,7 +545,7 @@ static int prlfs_proc_init(void)
 		goto out;
 	}
 
-	p = prlfs_proc_create("sf_list", S_IFREG | S_IRUGO, proc_prlfs,
+	p = proc_create("sf_list", S_IFREG | S_IRUGO, proc_prlfs,
 		&proc_sf_operations);
 	if (p == NULL) {
 		remove_proc_entry("fs/prl_fs", NULL);
@@ -657,6 +619,4 @@ MODULE_AUTHOR ("Parallels International GmbH");
 MODULE_DESCRIPTION ("Parallels linux guest filesystem");
 MODULE_LICENSE("Parallels");
 MODULE_INFO (supported, "external");
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
 MODULE_ALIAS_FS("prl_fs");
-#endif

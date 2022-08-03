@@ -125,6 +125,12 @@ prl_add_lib 'libfontconfig.so.1'
 prl_add_lib 'libxenserver.so.1'
 prl_add_lib 'libcurl.so.3'
 
+if [ "$(uname -m)" = 'aarch64' ]; then
+	prl_add_lib 'libicudata.so.60'
+	prl_add_lib 'libicui18n.so.60'
+	prl_add_lib 'libicuuc.so.60'
+fi
+
 test "x${PRL_USE_SHIPPED_QT:-yes}" = "xyes" && \
 	prl_add_shipped_qt
 

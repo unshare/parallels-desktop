@@ -12,6 +12,9 @@
 #include "prltg_compat.h"
 #include "../Interfaces/prltg_call.h"
 
+#define dma_addr_to_pfn(addr) ((addr) >> PAGE_SHIFT)
+#define pfn_to_dma_addr(pfn) ((pfn) << PAGE_SHIFT)
+
 static int tg_req_paged_size(TG_REQ_DESC *sdesc)
 {
 	TG_REQUEST *src;
@@ -73,10 +76,14 @@ static int tg_req_map_internal(struct TG_PENDING_REQUEST *req)
 	uple->count = 0;
 
 	for (i = 0; i < count; i++, mem += PAGE_SIZE, uple->count++) {
+		dma_addr_t addr;
+
 		uple->p[i] = vmalloc_to_page(mem);
 		page_cache_get(uple->p[i]);
 
-		dst->RequestPages[i] = pci_map_page(pdev, uple->p[i], 0, PAGE_SIZE, DMA_BIDIRECTIONAL) >> PAGE_SHIFT;
+		addr = dma_map_page(&pdev->dev, uple->p[i], 0, PAGE_SIZE,
+		                    DMA_BIDIRECTIONAL);
+		dst->RequestPages[i] = dma_addr_to_pfn(addr);
 		if (!dst->RequestPages[i]) {
 			page_cache_release(uple->p[i]);
 			goto err;
@@ -88,7 +95,9 @@ static int tg_req_map_internal(struct TG_PENDING_REQUEST *req)
 
 err:
 	for (i = 0; i < uple->count; i++) {
-		pci_unmap_page(pdev, dst->RequestPages[i] << PAGE_SHIFT, PAGE_SIZE, DMA_BIDIRECTIONAL);
+		dma_addr_t addr = pfn_to_dma_addr(dst->RequestPages[i]);
+		dma_unmap_page(&pdev->dev, addr, PAGE_SIZE,
+		               DMA_BIDIRECTIONAL);
 		page_cache_release(uple->p[i]);
 	}
 	kfree(uple);
@@ -129,22 +138,25 @@ static TG_PAGED_BUFFER *tg_req_map_user_pages(struct TG_PENDING_REQUEST *req,
 	pfn = (u64 *)dbuf - 1;
 
 	for (; npages > 0; npages--, mapped++) {
-		dma_addr_t addr = pci_map_page(pdev, uple->p[npages-1], 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
+		dma_addr_t addr = dma_map_page(&pdev->dev, uple->p[npages-1], 0,
+		                               PAGE_SIZE, DMA_BIDIRECTIONAL);
 
 		if (!addr) {
 			DPRINTK("[3] %d < %d	\n", got, npages);
 			goto err_unmap;
 		}
 
-		*(pfn--) = (u64)addr >> PAGE_SHIFT;
+		*(pfn--) = dma_addr_to_pfn(addr);
 	}
 
 	list_add(&uple->up_list, &req->up_list);
 	return dbuf;
 
 err_unmap:
-	for (i = 0; i < mapped; i++, pfn++)
-		pci_unmap_page(pdev, *pfn << PAGE_SHIFT, PAGE_SIZE, DMA_BIDIRECTIONAL);
+	for (i = 0; i < mapped; i++, pfn++) {
+		dma_unmap_page(&pdev->dev, pfn_to_dma_addr(*pfn), PAGE_SIZE,
+		               DMA_BIDIRECTIONAL);
+	}
 
 err_put:
 	for(i = 0; i < got; i++)
@@ -176,20 +188,22 @@ static TG_PAGED_BUFFER *tg_req_map_kernel_pages(struct TG_PENDING_REQUEST *req,
 			goto err;
 		}
 
-		addr = pci_map_page(pdev, page, 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
+		addr = dma_map_page(&pdev->dev, page, 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
 		if (!addr) {
 			DPRINTK("[2] va:%p can't map\n", buffer);
 			goto err;
 		}
 
-		*(pfn++) = addr >> PAGE_SHIFT;
+		*(pfn++) = dma_addr_to_pfn(addr);
 	}
 
 	return (TG_PAGED_BUFFER *)((u64 *)dbuf + npages);
 
 err:
-	for (; i > 0; i--, pfn--)
-		pci_unmap_page(pdev, *pfn << PAGE_SHIFT, PAGE_SIZE, DMA_BIDIRECTIONAL);
+	for (; i > 0; i--, pfn--) {
+		dma_unmap_page(&pdev->dev, pfn_to_dma_addr(*pfn), PAGE_SIZE,
+                       DMA_BIDIRECTIONAL);
+	}
 
 	return ERR_PTR(-ENOMEM);
 }
@@ -202,8 +216,11 @@ static inline int tg_req_unmap_internal(struct TG_PENDING_REQUEST *req)
 	count = (((unsigned long)dst & ~PAGE_MASK) +
 			dst->RequestSize + ~PAGE_MASK) >> PAGE_SHIFT;
 
-	for (i = 0; i < count; i++)
-		pci_unmap_page(req->dev->pci_dev, dst->RequestPages[i] << PAGE_SHIFT, PAGE_SIZE, DMA_BIDIRECTIONAL);
+	for (i = 0; i < count; i++) {
+		dma_addr_t addr = pfn_to_dma_addr(dst->RequestPages[i]);
+		dma_unmap_page(&req->dev->pci_dev->dev, addr, PAGE_SIZE,
+		               DMA_BIDIRECTIONAL);
+	}
 
 	return count;
 }
@@ -263,8 +280,10 @@ static void tg_req_unmap_pages(struct TG_PENDING_REQUEST *req, int nbuf)
 			sbuf->ByteCount = dbuf->ByteCount;
 
 		pfn = (u64 *)(dbuf + 1);
-		for (; npages > 0; npages--, pfn++)
-			pci_unmap_page(pdev, (*pfn) << PAGE_SHIFT, PAGE_SIZE, DMA_BIDIRECTIONAL);
+		for (; npages > 0; npages--, pfn++) {
+			dma_unmap_page(&pdev->dev, pfn_to_dma_addr(*pfn), PAGE_SIZE,
+			               DMA_BIDIRECTIONAL);
+		}
 
 		dbuf = (TG_PAGED_BUFFER *)pfn;
 	}
@@ -374,7 +393,8 @@ static int tg_req_submit(struct TG_PENDING_REQUEST *req)
 	 * also no any offset inside page needed.
 	 */
 	req->pg = vmalloc_to_page(dst);
-	req->phys = pci_map_page(dev->pci_dev, vmalloc_to_page(dst), 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
+	req->phys = dma_map_page(&dev->pci_dev->dev, vmalloc_to_page(dst), 0,
+	                         PAGE_SIZE, DMA_BIDIRECTIONAL);
 	if (!req->phys) {
 		DPRINTK("Can not allocate memory for DMA mapping\n");
 		goto out;
@@ -405,7 +425,8 @@ static int tg_req_submit(struct TG_PENDING_REQUEST *req)
 out:
 	if (ret != TG_STATUS_PENDING) {
 		page_cache_release(req->pg);
-		pci_unmap_page(dev->pci_dev, req->phys, PAGE_SIZE, DMA_BIDIRECTIONAL);
+		dma_unmap_page(&dev->pci_dev->dev, req->phys, PAGE_SIZE,
+		               DMA_BIDIRECTIONAL);
 	}
 
 	DPRINTK("EXIT\n");
@@ -460,7 +481,7 @@ out_wait:
 	wait_for_completion(&req->waiting);
 out:
 	page_cache_release(req->pg);
-	pci_unmap_page(dev->pci_dev, req->phys, PAGE_SIZE, DMA_BIDIRECTIONAL);
+	dma_unmap_page(&dev->pci_dev->dev, req->phys, PAGE_SIZE, DMA_BIDIRECTIONAL);
 	DPRINTK("EXIT\n");
 	return ret;
 }

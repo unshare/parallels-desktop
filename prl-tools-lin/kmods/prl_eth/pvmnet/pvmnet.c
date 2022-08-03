@@ -20,9 +20,6 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
-#include <asm/system.h>
-#endif
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
@@ -38,7 +35,7 @@
 #define NE_IO_EXTENT	0x20
 
 #define DRV_NAME     "prl_eth"
-#define DRV_VERSION  "1.1"
+#define DRV_VERSION  "1.1.2"
 
 struct pvmnet_priv {
 	struct net_device_stats stats;
@@ -55,6 +52,15 @@ MODULE_DEVICE_TABLE(pci, pvmnet_pci_tbl);
 
 static void pvmnet_setup(struct net_device *dev);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+#define prl_eth_hw_addr_set(dev, mac) eth_hw_addr_set(dev, mac)
+#else
+static inline void prl_eth_hw_addr_set(struct net_device *dev, const u8 *mac)
+{
+	memcpy(dev->dev_addr, mac, ETH_ALEN);
+}
+#endif
+
 /*
  * System specific part
  */
@@ -66,6 +72,7 @@ static int pvmnet_pci_init(struct pci_dev *pdev,
 	struct pvmnet_priv *priv;
 	unsigned long ioaddr;
 	void __iomem *mmio;
+	u8 mac[ETH_ALEN];
 	int i, err;
 	int irq;
 
@@ -101,7 +108,8 @@ static int pvmnet_pci_init(struct pci_dev *pdev,
 
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
-	io_get_mac_address(ioaddr, dev->dev_addr, ETH_ALEN);
+	io_get_mac_address(ioaddr, mac, sizeof(mac));
+	prl_eth_hw_addr_set(dev, mac);
 
 	dev->irq = irq;
 	dev->base_addr = ioaddr;
@@ -215,10 +223,6 @@ static struct ethtool_ops pvmnet_ethtool_ops = {
 #endif
 	.get_drvinfo            = pvmnet_get_drvinfo,
 	.get_link               = ethtool_op_get_link,
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,39))
-	.get_tx_csum            = ethtool_op_get_tx_csum,
-	.get_sg                 = ethtool_op_get_sg,
-#endif
 };
 #endif	/* HAVE_ETHTOOL_OPS */
 
@@ -399,6 +403,14 @@ static void pvmnet_free(struct net_device *dev)
 {
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0)
+static int pvmnet_change_mtu(struct net_device *dev, int new_mtu)
+{
+	dev->mtu = new_mtu;
+	return 0;
+}
+#endif
+
 
 #ifdef HAVE_NET_DEVICE_OPS
 static const struct net_device_ops pvmnet_netdev_ops = {
@@ -408,19 +420,14 @@ static const struct net_device_ops pvmnet_netdev_ops = {
    .ndo_stop = pvmnet_close,
    .ndo_init = pvmnet_init,
    .ndo_uninit = pvmnet_free,
-#if REAL_LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)
-   .ndo_set_multicast_list = pvmnet_set_multicast_list,
-#else
    .ndo_set_rx_mode = pvmnet_set_multicast_list,
-#endif
 
-#ifdef RHEL_RELEASE_CODE
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 5) && \
-    RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8, 0)
+#ifdef RHEL_CHANGE_MTU_EXTENDED
 	.extended.ndo_change_mtu = eth_change_mtu,
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0)
+	.ndo_change_mtu = pvmnet_change_mtu,
 #else
 	.ndo_change_mtu = eth_change_mtu,
-#endif
 #endif
 };
 #endif

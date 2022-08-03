@@ -42,14 +42,10 @@ inline void prlfs_page_cache_unlock(struct address_space *mapping)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) || \
 			   defined(PRLFS_RHEL_8_1_GE)
 #define prlfs_page_cache_invalid_entry(x) xa_is_value(x)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0) || \
-                            defined(PRLFS_RHEL_6_2_GE)
-#define prlfs_page_cache_invalid_entry(x) radix_tree_exceptional_entry(x)
 #else
-#define prlfs_page_cache_invalid_entry(x) 0
+#define prlfs_page_cache_invalid_entry(x) radix_tree_exceptional_entry(x)
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0)
 static int prlfs_mapping_update(struct file *filp)
 {
 	struct address_space *mapping = filp->f_mapping;
@@ -71,46 +67,6 @@ static int prlfs_mapping_update(struct file *filp)
 	prlfs_page_cache_unlock(mapping);
 	return 0;
 }
-
-#else
-static int prlfs_mapping_update(struct file *filp)
-{
-	struct inode *inode = FILE_DENTRY(filp)->d_inode;
-	struct address_space *mapping = filp->f_mapping;
-	struct radix_tree_root *pages;
-	unsigned int i, found_pages = 0;
-	unsigned int max_pages = (inode->i_size / PAGE_SIZE) + 1;
-	void ***slots = kzalloc(max_pages * sizeof(void**), GFP_KERNEL);
-	if (!slots)
-		return -ENOMEM;
-
-	pages = prlfs_page_cache_get_locked(mapping);
-	found_pages = radix_tree_gang_lookup_slot(pages,
-// Add RADIX_TREE_EXCEPTIONAL_ENTRY condition as a criteria of
-// using expanded version of radix_tree_gang_lookup_slot() in SLES 11.
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0) || \
-	defined(PRLFS_RHEL_6_2_GE) || \
-	defined(RADIX_TREE_EXCEPTIONAL_ENTRY)
-				slots, NULL, 0, max_pages);
-#else
-				slots, 0, max_pages);
-#endif
-
-	for (i = 0; i < found_pages; i++) {
-		struct page *cur_page = radix_tree_deref_slot(slots[i]);
-		if (!cur_page) {
-			DPRINTK("NULL page in mapping tree\n");
-			continue;
-		}
-		if (prlfs_page_cache_invalid_entry(cur_page))
-			continue;
-		ClearPageUptodate(cur_page);
-	}
-	prlfs_page_cache_unlock(mapping);
-	kfree(slots);
-	return 0;
-}
-#endif
 
 static int prlfs_check_open_flags(const struct file *filp, const struct prlfs_fd *pfd)
 {
@@ -387,7 +343,7 @@ out:
 }
 
 ssize_t prlfs_rw(struct inode *inode, char *buf, size_t size,
-			loff_t *off, unsigned int rw, int user, int flags)
+			loff_t *off, unsigned int rw, int flags)
 {
 	ssize_t ret;
 	struct super_block *sb;
@@ -406,8 +362,7 @@ ssize_t prlfs_rw(struct inode *inode, char *buf, size_t size,
 		goto out;
 
 	sb = inode->i_sb;
-	init_buffer_descriptor(&bd, buf, size,(rw == 0) ? 1 : 0,
-						(user == 0) ? 0 : 1);
+	init_buffer_descriptor(&bd, buf, size,(rw == 0) ? 1 : 0);
 	bd.flags = flags;
 	ret = host_request_rw(sb, &pfi, &bd);
 	if (ret < 0)
@@ -421,15 +376,6 @@ out:
 	return ret;
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
-#ifdef PRL_SIMPLE_SYNC_FILE
-int simple_sync_file(struct file *filp, struct dentry *dentry, int datasync)
-{
-	return 0;
-}
-#endif
-#endif
-
 struct file_operations prlfs_file_fops = {
 	.open		= prlfs_open,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
@@ -442,11 +388,7 @@ struct file_operations prlfs_file_fops = {
 	.llseek         = generic_file_llseek,
 	.release	= prlfs_release,
 	.mmap		= generic_file_mmap,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,35)
 	.fsync		= noop_fsync,
-#else
-	.fsync		= simple_sync_file,
-#endif
 };
 
 struct file_operations prlfs_dir_fops = {
@@ -459,9 +401,5 @@ struct file_operations prlfs_dir_fops = {
 	.release	= prlfs_release,
 	.read		= generic_read_dir,
 	.llseek		= generic_file_llseek,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,35)
 	.fsync		= noop_fsync,
-#else
-	.fsync		= simple_sync_file,
-#endif
 };

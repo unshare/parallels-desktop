@@ -30,18 +30,14 @@
 #define MODULE_LICENSE(x)
 #endif
 
+#ifdef RHEL_RELEASE_CODE
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 0)
+#define PRLTG_RHEL_9_0_GE 1
+#endif
+#endif
+
 #undef dev_put
 #define dev_put(x) __dev_put(x)
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
-#define PDE_DATA(x) (PDE(x)->data)
-#endif
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
-#define PROC_OWNER(p, own)	p->owner = own
-#else
-#define PROC_OWNER(p, own)
-#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 #define FILE_DENTRY(f) ((f)->f_path.dentry)
@@ -115,6 +111,18 @@
 #define prl_in_compat_syscall() in_compat_syscall()
 #else
 #define prl_in_compat_syscall() test_thread_flag(TIF_IA32)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
+#define prl_set_dma_mask(pdev, mask) dma_set_mask(&(pdev)->dev, mask)
+#else
+#define prl_set_dma_mask(pdev, mask) pci_set_dma_mask(pdev, mask)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0) || defined(PRLTG_RHEL_9_0_GE)
+#define prl_pde_data(inode) pde_data(inode)
+#else
+#define prl_pde_data(inode) PDE_DATA(inode)
 #endif
 
 #endif /* __PRL_TG_COMPAT_H__ */
