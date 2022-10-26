@@ -31,8 +31,10 @@
 #endif
 
 #ifdef RHEL_RELEASE_CODE
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 0)
-#define PRLTG_RHEL_9_0_GE 1
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 2)
+#define PRLTG_RHEL_9_2_GE 1
+#elif RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(9, 1)
+#define PRLTG_RHEL_9_1_EQ 1
 #endif
 #endif
 
@@ -119,8 +121,13 @@
 #define prl_set_dma_mask(pdev, mask) pci_set_dma_mask(pdev, mask)
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0) || defined(PRLTG_RHEL_9_0_GE)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0) || defined(PRLTG_RHEL_9_2_GE)
 #define prl_pde_data(inode) pde_data(inode)
+#elif defined(PRLTG_RHEL_9_1_EQ)
+static inline void *prl_pde_data(const struct inode *inode)
+{
+	return inode->i_private;
+}
 #else
 #define prl_pde_data(inode) PDE_DATA(inode)
 #endif

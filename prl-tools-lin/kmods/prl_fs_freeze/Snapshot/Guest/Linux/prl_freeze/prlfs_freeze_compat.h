@@ -7,6 +7,12 @@
 #ifndef __PRL_FSFREEZE_COMPAT_H__
 #define __PRL_FSFREEZE_COMPAT_H__
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)
+#define prl_bdevname(bdev, buf) snprintf(buf, sizeof(buf), "%pg", bdev)
+#else
+#define prl_bdevname(bdev, buf) bdevname(bdev, buf)
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
 
 #define PRLFS_FREEZE_PROC_OPS_INIT(_owner, _open, _read, _write, _lseek, _release) \

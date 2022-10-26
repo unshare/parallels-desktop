@@ -174,12 +174,13 @@ tg_out(struct tg_dev *dev, unsigned long port, unsigned long long val)
 {
 	unsigned long flags;
 
-	port += (unsigned long)dev->base_addr;
 	spin_lock_irqsave(&dev->lock, flags);
 
 #if defined(__aarch64__)
-	iowrite64(val, port);
+	iowrite64(val, dev->base_addr + port);
 #else
+	port += (unsigned long)dev->base_addr;
+
 	if (dev->flags & TG_DEV_FLAG_OUTS) {
 		unsigned long len = (sizeof(unsigned long long) >> 2);
 		void *ptr = &val;

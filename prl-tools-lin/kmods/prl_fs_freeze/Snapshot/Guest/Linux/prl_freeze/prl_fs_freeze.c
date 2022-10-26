@@ -306,7 +306,7 @@ int seq_show(struct seq_file *file, void *data)
 	char buf[BDEVNAME_SIZE];
 
 	fsb = list_entry((struct list_head*)data, struct frozen_sb, list);
-	bdevname(fsb->sb->s_bdev, buf);
+	prl_bdevname(fsb->sb->s_bdev, buf);
 	seq_printf(file, "%s\n", buf);
 	return 0;
 }
