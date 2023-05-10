@@ -164,11 +164,23 @@ map_package_name()
 				redhat|fedora)
 					if [ -d /lib/modules/$kver ]; then
 						kernel_package=$(rpm -qf /lib/modules/$kver | head -n1)
-						devel_package=$(echo $kernel_package | \
-							sed "s/kernel\(-[a-zA-Z\-]*\)/kernel\1devel-/")
+						if [ "$os_name" = 'fedora' -a $os_version -ge 35 ]; then
+							# 'kernel-devel-matched-XXX' meta package is used to install matching core and
+							# devel packages for a given kernel (available starting from Fedora 35). 
+							# Latest versions of DKMS depend on 'kernel-devel-matched' instead of 'kernel-devel'. 
+							# Install 'kernel-devel-matched' to avoid redundant kernel-core update during 
+							# installation of DKMS
+							devel_package=$(echo $kernel_package | \
+								sed "s/kernel\(-[a-zA-Z\-]*\)/kernel\1devel-matched-/")
+						else
+							devel_package=$(echo $kernel_package | \
+								sed "s/kernel\(-[a-zA-Z\-]*\)/kernel\1devel-/")
+						fi
 						if [ "$os_name" = 'fedora' -a $os_version -ge 21 -o \
 								"$os_name" = 'redhat' -a $os_version -ge 8 ]; then
 							devel_package=$(echo $devel_package | sed "s/-core-/-/")
+							# On Fedora 38 Pre release/ Contos 9 stream (rhel 9.2 Pre release) new package kernel-modules-core was introduced. So try to trim '-modules-' too.
+							devel_package=$(echo $devel_package | sed "s/-modules-/-/")
 						fi
 						echo $devel_package
 					else
