@@ -32,6 +32,7 @@ ccflags-y += -DDRV_DATE=\"$(DRIVER_DATE)\"
 ccflags-y += -DDRV_VERSION=\"$(DRIVER_VERSION)\"
 ccflags-y += -DDRV_MAJOR=$(DRIVER_MAJOR)
 ccflags-y += -DDRV_MINOR=$(DRIVER_MINOR)
+ccflags-y += -D__DISABLE_TRACE_MMIO__ # Disable MMIO tracing because the MMIO tracing API declared as GPL-only
 ccflags-y += -I$(obj)/../Interfaces
 ccflags-y += -I$(obj)/../../../../../prl_vid/Video/Interfaces
 
