@@ -9,6 +9,14 @@
  * All Rights Reserved.
  * http://www.parallels.com
  */
+
+/*
+Hijack kernel config definitions to avoid using of GPL only symbol 
+'has_cc_platform'. We hope that this code won’t be executed on systems 
+with enabled ‘Confidential computing’ features (AMD SEV/ Intel TDX)
+*/
+#undef CONFIG_ARCH_HAS_CC_PLATFORM
+
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
