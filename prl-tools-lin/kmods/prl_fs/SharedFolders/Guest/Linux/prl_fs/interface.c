@@ -91,14 +91,26 @@ static void init_tg_request(TG_REQUEST *src, unsigned request,
 	src->BufferCount = bnum;
 }
 
-static void init_tg_buffer(TG_REQ_DESC *sdesc, int bnum, void *buffer,
-		size_t size, int write)
+static void init_tg_buffer_impl(TG_REQ_DESC *sdesc, int bnum, void *buffer,
+		size_t size, int write, int kernelSpace)
 {
 	TG_BUFFER *sbuf = sdesc->sbuf + bnum;
 	sbuf->u.Buffer = buffer;
 	sbuf->ByteCount = size;
 	sbuf->Writable = (write == 0) ? 0 : 1;
-	prltg_buf_set_kernelspace(sdesc, bnum);
+	if (kernelSpace != 0)
+		prltg_buf_set_kernelspace(sdesc, bnum);
+}
+
+static void init_tg_buffer_from_bd(TG_REQ_DESC *sdesc, int bnum, struct buffer_descriptor* bd)
+{
+	init_tg_buffer_impl(sdesc, bnum, bd->buf, bd->len, bd->write, bd->kernelSpace);
+}
+
+static void init_tg_buffer(TG_REQ_DESC *sdesc, int bnum, void *buffer,
+		size_t size, int write)
+{
+	init_tg_buffer_impl(sdesc, bnum, buffer, size, write, true);
 }
 
 int host_request_get_sf_list(struct tg_dev *dev, void *data, int size)
@@ -486,3 +498,53 @@ int host_request_symlink(struct super_block *sb, const void *src_path, int src_l
 	return ret;
 }
 
+int host_request_ioctl(struct super_block *sb, struct prlfs_file_info *pfi,
+						unsigned cmd, struct buffer_descriptor *optionalBd)
+{
+	int ret;
+	TG_REQ_DESC sdesc;
+	struct prlfs_file_desc *pfd;
+	struct {
+		TG_REQUEST Req;
+		struct prlfs_l_ioctl_parameters Params;
+		TG_BUFFER Buffer[2];
+	} Req;
+
+	if (!sb || !pfi)
+		return -EINVAL;
+
+	pfd = kmalloc(sizeof(struct prlfs_file_desc), GFP_KERNEL);
+	if (!pfd)
+		return -ENOMEM;
+	prlfs_file_info_to_desc(pfd, pfi);
+
+	memset(&Req, 0, sizeof(Req));
+	Req.Params.code = cmd;
+	init_tg_request(&Req.Req, TG_REQUEST_FS_L_IOCTL_BYPASS, sizeof(Req.Params), !!optionalBd ? 2 : 1);
+	init_req_desc(&sdesc, &Req.Req, &Req.Params, &Req.Buffer[0]);
+	init_tg_buffer(&sdesc, 0, (void *)pfd, PFD_LEN, 0);
+	if (!!optionalBd)
+		init_tg_buffer_from_bd(&sdesc, 1, optionalBd);
+		
+	sdesc.flags = TG_REQ_COMMON;
+	
+	ret = call_tg_sync(PRLTG_SB(sb), &sdesc);
+	if (ret == 0) 
+	{
+		if (Req.Req.Status == TG_STATUS_SUCCESS)
+		{
+			if (!!optionalBd)
+				optionalBd->len = Req.Buffer[1].ByteCount;
+		}
+		else
+		{
+			ret = ((Req.Req.Status == TG_STATUS_NOT_IMPLEMENTED) 
+					|| (Req.Req.Status == TG_STATUS_INVALID_PARAMETER))
+				? -ENOTTY // Looks strange but vfs_ioctl returns this error code
+				: -TG_ERR(Req.Req.Status);
+		}
+	}
+	
+	kfree(pfd);
+	return ret;
+}

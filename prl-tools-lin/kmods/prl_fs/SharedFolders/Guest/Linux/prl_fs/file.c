@@ -376,6 +376,49 @@ out:
 	return ret;
 }
 
+static long prlfs_ioctl_impl(struct inode *inode, unsigned int cmd, void __user *buff)
+{
+	struct super_block *sb;
+	struct prlfs_file_info pfi;
+	struct buffer_descriptor bd;
+
+	if (!inode)
+		return -EINVAL;
+
+	// Init SB arg
+	sb = inode->i_sb;
+
+	// Init PFI arg
+	init_pfi(&pfi, inode, 0, 0);
+
+	// Init Buffer Descriptor arg
+	if (_IOC_DIR(cmd) != 0) 
+		init_user_buffer_descriptor(&bd, buff,  _IOC_SIZE(cmd), (_IOC_DIR(cmd) & _IOC_READ) ? 1 : 0);
+
+	// Call host
+	return host_request_ioctl(sb, &pfi, cmd, (_IOC_DIR(cmd) != 0) ? &bd : NULL);
+}
+
+static long prlfs_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	ssize_t ret = 0;
+
+	DPRINTK("ENTER prlfs_ioctl %d\n", cmd);
+
+	if (!file) {
+		ret = -EINVAL;
+		goto out; 
+	}
+
+	ret = prlfs_ioctl_impl(file_inode(file), cmd, (void __user *)arg);
+
+out:
+	DPRINTK("EXIT prlfs_ioctl %d, ret: %lld\n", cmd, (long long)ret);
+	return ret;
+}
+
+
+
 struct file_operations prlfs_file_fops = {
 	.open		= prlfs_open,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
@@ -389,6 +432,7 @@ struct file_operations prlfs_file_fops = {
 	.release	= prlfs_release,
 	.mmap		= generic_file_mmap,
 	.fsync		= noop_fsync,
+	.unlocked_ioctl = prlfs_ioctl,
 };
 
 struct file_operations prlfs_dir_fops = {

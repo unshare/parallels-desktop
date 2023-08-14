@@ -13,6 +13,10 @@ MNT_OPS=sync,nosuid,nodev,noatime,share
 # In addition to MNT_OPS for the Home folder
 MNT_OPS_HOME=host_inodes
 PRL_LOG=/var/log/parallels.log
+ROSETTA_LINUX_SF_NAME=RosettaLinux
+ROSETTAD_PID_FILE="/var/run/prlrosettad.pid"
+ROSETTAD_SOCK="/var/run/prlrosettad.sock"
+BINFMT_CONFIG_COMMAND=prlbinfmtconfig
 
 if [ "$1" = "-f" ]; then
 	# Foreground mode: just run remounting once.
@@ -40,15 +44,13 @@ fi
 # remove all obsolete mount points in MNT_PT dir
 rmdir "$MNT_PT"/* 2>/dev/null
 
-type semodule >/dev/null 2>&1 &&
-	MNT_OPS=$MNT_OPS',context=system_u:object_r:removable_t:s0'
-
 prl_log() {
 	level=$1
 	shift
 	msg=$*
 	timestamp=`date '+%m-%d %H:%M:%S    '`
 	echo "$timestamp $level SHAREDFOLDERS: $msg" >>"$PRL_LOG"
+	echo "$msg"
 }
 
 # $1 -- SF name
@@ -59,12 +61,140 @@ do_mount() {
 	else
 		mnt_ops=$MNT_OPS
 	fi
+
+	se_target_context=$([ "$1" = "RosettaLinux" ] && 
+		echo "bin_t" || echo "removable_t")
+	type semodule >/dev/null 2>&1 &&
+		mnt_ops=$mnt_ops",context=system_u:object_r:$se_target_context:s0"
+
 	if uname -r | grep -q '^[0-2].[0-4]'; then
 		mount -t prl_fs -o $mnt_ops,sf="$1" none "$2"
 	else
 		mount -t prl_fs -o $mnt_ops "$1" "$2"
 	fi
+
 	return $?
+}
+
+run_with_logging()
+{
+	local command=$1
+  	shift
+	
+	local command_out
+	command_out=$($command $* 2>&1)
+	rc=$?
+
+	# TODO comment
+	local original_ifs="$IFS"
+	IFS=" "
+	if [ $rc -eq 0 ]; then
+		prl_log I "Successfully executed: '$command $*'" \
+			"Output: $command_out"
+	else
+		prl_log E "Failed to execute:'$command $*'. " \
+			"Retcode=$rc Output: $command_out"
+	fi
+
+	IFS="$original_ifs"
+	return $rc
+}
+	
+check_socket_existence() {
+	local socket_path="$1"
+	local timeout=10
+	
+	local start_time=$(date +%s)
+	local end_time=$((start_time + timeout))
+	
+	while [ ! -S "$socket_path" ] && [ $(date +%s) -lt "$end_time" ]; do
+		sleep 1
+	done
+	
+	if [ ! -S "$socket_path" ]; then
+		echo "Timeout: Socket $socket_path does not exist within $timeout seconds"
+		return 1
+	fi
+}
+
+start_rosettad() {
+	path="$1"
+	cache_dir="/var/cache/prlrosettad"
+	socket_path="$cache_dir/uds/prlrosettad.sock"
+
+	# Remove stale rosettad native socket (to be able monitor the creation of a new socket) 
+	if [ -S "$socket_path" ]; then
+		rm -f "$socket_path"
+	fi
+
+	# Run rosettad as daemon
+	"$path" daemon "$cache_dir" > /var/log/parallels-rosettad.log 2>&1 < /dev/null &
+	pid=$!
+	echo $pid > $ROSETTAD_PID_FILE
+	echo "Rosettad daemon started with PID: $pid"
+
+	# Detach backgroud task (rosettad)
+	disown
+
+	# Wait untill rosetad create communication socket
+	if check_socket_existence "$socket_path"; then
+		# Allow connections from NON-root processes
+		#rwx--x--x
+		chmod 711 "$cache_dir"
+		chmod 711 "$cache_dir/uds"
+		#rwxrw-rw-
+		chmod 766 "$socket_path"
+
+		# Create symlink to the sock in /var/run/
+		ln -s "$socket_path" "$ROSETTAD_SOCK"
+	fi
+
+	return $?
+}
+
+stop_rosettad() {
+	if [ -f "$ROSETTAD_PID_FILE" ]; then
+		pid=$(cat "$ROSETTAD_PID_FILE")
+
+		echo "Teminating Rosettad daemon started with PID: $pid"
+
+		kill "$pid"
+
+		rm "$ROSETTAD_PID_FILE"
+	else
+		echo "Rosettad daemon is not running or PID file does not exist"
+	fi
+
+	if [ -h "$ROSETTAD_SOCK" ]; then
+		rm "$ROSETTAD_SOCK"
+	fi
+}
+
+on_mount_rosetta_sf() {
+	mount_point="$1"
+	rosetta_path=$mount_point/rosetta
+	rosettad_daemon_path=$mount_point/rosettad
+		
+	if [ -f "$rosetta_path" ]; then
+		run_with_logging $BINFMT_CONFIG_COMMAND register $ROSETTA_LINUX_SF_NAME $rosetta_path
+
+		if [ $? -eq 0 ]; then
+			if [ -f "$rosettad_daemon_path" ]; then
+					run_with_logging start_rosettad "$rosettad_daemon_path"
+			else
+					prl_log I "Skip starting Rosetta OAT сaching daemon. executable '$rosettad_daemon_path' is not found"
+			fi
+		fi
+	else
+		prl_log W "Skip registring binfmt. Emulator '$rosetta_path' is not found"
+	fi
+
+	return $?
+}
+
+on_unmount_rosetta_sf() {
+	run_with_logging $BINFMT_CONFIG_COMMAND unregister $ROSETTA_LINUX_SF_NAME
+	run_with_logging stop_rosettad
 }
 
 IFS=$'\n'
@@ -104,16 +234,16 @@ while true; do
 				chmod 755 "$MNT_PT"
 			fi
 			mkdir "$mnt_pt"
-			mount_out=`do_mount "$sf" "$mnt_pt" 2>&1`
-			rc=$?
-			if [ $rc -eq 0 ]; then
-				prl_log I "Mounted shared folder '$sf'"
-			else
-				prl_log E "Failed to mount shared folder '$sf'. " \
-					"Retcode=$rc Output: $mount_out"
+			run_with_logging do_mount $sf $mnt_pt
+
+			if [ $? -eq 0 ]; then
+				if [ "$sf" = "$ROSETTA_LINUX_SF_NAME" ]; then
+					on_mount_rosetta_sf $mnt_pt
+				fi
 			fi
 		done
 	fi
+
 	# Here in $curr_mnt_pts is the list of SFs which are disabled
 	# but still mounted -- umount all them.
 	for mnt_pt in $curr_mnt_pts; do
@@ -123,14 +253,17 @@ while true; do
 			prl_log I "Skipping shared folder '${mnt_pt}'"
 			continue
 		fi
-		umount_out=`umount "$mnt_pt" 2>&1`
-		rc=$?
-		if [ $rc -eq 0 ]; then
-			prl_log I "Umounted shared folder '$mnt_pt'"
+
+		# Unregister binfmt before unmounting, because binfmt_misc
+		# might hold open interpretator
+		sf=$(echo "$mnt_pt" | sed "s|^$MNT_PT/||")
+		if [ "$sf" = "$ROSETTA_LINUX_SF_NAME" ]; then
+			on_unmount_rosetta_sf $mnt_pt
+		fi
+
+		run_with_logging umount $mnt_pt
+		if [ $? -eq 0 ]; then
 			rmdir "$mnt_pt"
-		else
-			prl_log E "Failed to umount shared folder '$mnt_pt'. " \
-				"Retcode=$rc Output: $umount_out"
 		fi
 	done
 	[ $RUN_MODE != 'b' ] && exit $rc

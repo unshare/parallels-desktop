@@ -58,6 +58,17 @@ void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
 	bd->len = len;
 	bd->write = (write == 0) ? 0 : 1;
 	bd->flags = TG_REQ_COMMON;
+	bd->kernelSpace = true;
+}
+
+void init_user_buffer_descriptor(struct buffer_descriptor *bd, void __user *buf,
+			    unsigned long long len, int write)
+{
+	bd->buf = (void *)buf;
+	bd->len = len;
+	bd->write = (write == 0) ? 0 : 1;
+	bd->flags = TG_REQ_COMMON;
+	bd->kernelSpace = false;
 }
 
 static int prepend(char **buffer, int *buflen, const char *str, int namelen)

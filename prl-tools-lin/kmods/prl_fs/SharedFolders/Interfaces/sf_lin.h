@@ -407,6 +407,13 @@ struct prlfs_sf_features {
 	unsigned flags;
 };
 
+struct prlfs_l_ioctl_parameters
+{
+	unsigned code;
+	unsigned reserved; // To be able to add some flags (source bitness, compat ioctl, ...) preserving ABI
+	// TODO reserve some area to describe reply from host that more data is required
+} PACKED;
+
 #ifdef _WIN_
 #  pragma pack(pop)
 #endif

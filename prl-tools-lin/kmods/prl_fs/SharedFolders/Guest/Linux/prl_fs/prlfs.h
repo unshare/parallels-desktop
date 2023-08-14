@@ -144,9 +144,13 @@ struct buffer_descriptor {
 	unsigned long long len;
 	int write;
 	int flags;
+	int kernelSpace;
 };
 
 void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
+			    unsigned long long len, int write);
+
+void init_user_buffer_descriptor(struct buffer_descriptor *bd, void __user *buf,
 			    unsigned long long len, int write);
 
 void *prlfs_get_path(struct dentry *dentry, void *buf, int *plen);
@@ -188,6 +192,8 @@ int host_request_readlink(struct super_block *sb, void *src_path, int src_len,
                                                   void *tgt_path, int tgt_len);
 int host_request_symlink(struct super_block *sb, const void *src_path, int src_len,
                          const void *tgt_path, int tgt_len);
+int host_request_ioctl(struct super_block *sb, struct prlfs_file_info *pfi,
+						unsigned cmd, struct buffer_descriptor *bd);
 
 /* define to 1 to enable copious debugging info */
 #undef DRV_DEBUG

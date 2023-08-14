@@ -6,7 +6,6 @@
 
 first: compile
 
-PRL_ETH ?= prl_eth/pvmnet
 PRL_TG ?= prl_tg/Toolgate/Guest/Linux/prl_tg
 PRL_FS ?= prl_fs/SharedFolders/Guest/Linux/prl_fs
 PRL_FREEZE ?= prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze
@@ -52,7 +51,6 @@ compile:
 ifeq ($(shell uname -m),aarch64)
 	cd ${PRL_NOTIFIER} && make CC=${CC}
 else
-	cd ${PRL_ETH} && make CC=$(CC)
 ifndef PRL_VID_SKIP
 	cp -f ${PRL_TG}/*.symvers ${PRL_VID} ||:
 	cd ${PRL_VID} && make CC=$(CC) KBUILD_EXTRA_SYMBOLS=${PRL_TG_SYMVERS}
@@ -68,7 +66,6 @@ clean:
 ifeq ($(shell uname -m),aarch64)
 	cd ${PRL_NOTIFIER} && make clean
 else
-	cd ${PRL_ETH} && make clean
 	cd ${PRL_VID} && make clean
 endif
 ifndef PRL_FREEZE_SKIP
