@@ -186,12 +186,6 @@ start() {
 
 	#clientid_install
 
-	if modprobe prl_eth; then
-		prl_end_msg "done"
-	else
-		prl_end_msg "failed"
-	fi
-
 	prl_begin_msg "Loading Parallels Shared Folders driver: "
 	if modprobe prl_fs; then
 		prl_end_msg "done"

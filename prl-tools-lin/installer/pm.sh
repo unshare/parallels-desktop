@@ -35,6 +35,7 @@
 #	- kpartx
 #	- dmsetup
 #	- libelf-devel
+#	- binfmt-support
 
 PATH=${PATH:+$PATH:}/sbin:/bin:/usr/sbin:/usr/bin
 
@@ -54,8 +55,7 @@ karch=$(uname -m)
 BASE_DIR="$(dirname "$0")"
 KMOD_DIR="$BASE_DIR/../kmods"
 
-KMODS_PATHS="	prl_eth/pvmnet	\
-		prl_tg/Toolgate/Guest/Linux/prl_tg	\
+KMODS_PATHS="prl_tg/Toolgate/Guest/Linux/prl_tg	\
 		prl_fs/SharedFolders/Guest/Linux/prl_fs"
 
 package_manager()
@@ -466,6 +466,10 @@ map_package_name()
 					return 1
 				;;
 			esac
+		;;
+
+		binfmt-support)
+			echo "binfmt-support"
 		;;
 
 		*)
@@ -1193,7 +1197,11 @@ check_deps()
 			[ $selinux_needed -eq 1 ] && \
 				deps_list="${deps_list:+${deps_list}\n}m selinux-policy-devel"
 		fi
-
+		
+		if [ "$os_name" = 'debian' ] && [ "$karch" = 'aarch64' ]; then
+			dpkg --status binfmt-support > /dev/null 2>&1 ||
+				deps_list="${deps_list:+${deps_list}\n}o binfmt-support"
+		fi
 	fi
 
 	if [ "$prod" = 'gtools' ]; then
