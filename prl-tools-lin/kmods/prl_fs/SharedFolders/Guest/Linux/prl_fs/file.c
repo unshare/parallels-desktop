@@ -435,9 +435,15 @@ struct file_operations prlfs_file_fops = {
 	.unlocked_ioctl = prlfs_ioctl,
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+WRAP_DIR_ITER(prlfs_readdir)
+#endif
+
 struct file_operations prlfs_dir_fops = {
 	.open		= prlfs_open,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+	.iterate_shared = shared_prlfs_readdir,
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0)
 	.iterate	= prlfs_readdir,
 #else
 	.readdir	= prlfs_readdir,
