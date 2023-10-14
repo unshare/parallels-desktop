@@ -12,7 +12,7 @@
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/fs.h>
-#include <linux/pci.h>
+#include <linux/slab.h>
 #include "prlfs.h"
 
 struct status_table{

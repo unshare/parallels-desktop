@@ -10,7 +10,7 @@
 #include <linux/sched.h>
 #include <linux/param.h>
 #include <linux/pagemap.h>
-#include <linux/pci.h>
+#include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/stat.h>

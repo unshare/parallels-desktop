@@ -158,6 +158,44 @@ static int do_prlfs_getattr(struct dentry *dentry, struct prlfs_attr *attr)
 
 #define SET_INODE_TIME(t, time)	do { (t).tv_sec = (time); } while (0)
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+
+#define prlfs_inode_get_ctime inode_get_ctime
+#define prlfs_inode_set_ctime_to_ts inode_set_ctime_to_ts
+#define prlfs_inode_set_ctime inode_set_ctime
+
+#else // #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
+#define prlfs_timespec timespec64
+#define prlfs_kerneltime time64_t
+#else
+#define prlfs_timespec timespec
+#define prlfs_kerneltime __kernel_time_t
+#endif
+
+static inline struct prlfs_timespec prlfs_inode_get_ctime(const struct inode *inode)
+{
+	return inode->i_ctime;
+}
+static inline struct prlfs_timespec prlfs_inode_set_ctime_to_ts(struct inode *inode,
+						      struct prlfs_timespec ts)
+{
+	inode->i_ctime = ts;
+	return ts;
+}
+static inline struct prlfs_timespec prlfs_inode_set_ctime(struct inode *inode,
+						prlfs_kerneltime sec, long nsec)
+{
+	struct prlfs_timespec ts = { .tv_sec  = sec,
+				 .tv_nsec = nsec };
+
+	return prlfs_inode_set_ctime_to_ts(inode, ts);
+}
+
+#endif // #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0) #else
+
+
 static void prlfs_change_attributes(struct inode *inode,
 				    struct prlfs_attr *attr)
 {
@@ -172,7 +210,7 @@ static void prlfs_change_attributes(struct inode *inode,
 	if (attr->valid & _PATTR_MTIME)
 		SET_INODE_TIME(inode->i_mtime, attr->mtime);
 	if (attr->valid & _PATTR_CTIME)
-		SET_INODE_TIME(inode->i_ctime, attr->ctime);
+		prlfs_inode_set_ctime(inode, attr->ctime, 0);
 	if (attr->valid & _PATTR_MODE)
 		inode->i_mode = (inode->i_mode & S_IFMT) | (attr->mode & 07777);
 	if (attr->valid & _PATTR_UID) {
@@ -531,12 +569,20 @@ struct dentry_operations prlfs_dentry_ops = {
 };
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-inline int __prlfs_getattr(prl_idmap_t *mnt_idmap, 
-                           struct dentry *dentry, struct kstat *stat)
+static int prlfs_getattr(prl_idmap_t *mnt_idmap,
+                         const struct path *path, struct kstat *stat,
+                         u32 request_mask, unsigned int query_flags)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+static int prlfs_getattr(const struct path *path, struct kstat *stat,
+		u32 request_mask, unsigned int query_flags)
 #else
-inline int __prlfs_getattr(struct dentry *dentry, struct kstat *stat)
+static int prlfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
+		 struct kstat *stat)
 #endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+	struct dentry *dentry = path->dentry;
+#endif
 	int ret;
 	DPRINTK("ENTER\n");
 	if (check_dentry(dentry)) {
@@ -548,7 +594,9 @@ inline int __prlfs_getattr(struct dentry *dentry, struct kstat *stat)
 	if (ret < 0)
 		goto out;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+	generic_fillattr(mnt_idmap, request_mask, dentry->d_inode, stat);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
 	generic_fillattr(mnt_idmap, dentry->d_inode, stat);
 #else
 	generic_fillattr(dentry->d_inode, stat);
@@ -563,27 +611,6 @@ out:
 	DPRINTK("EXIT returning %d\n", ret);
 	return ret;
 }
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_getattr(prl_idmap_t *mnt_idmap,
-                         const struct path *path, struct kstat *stat,
-                         u32 request_mask, unsigned int query_flags)
-{
-	return __prlfs_getattr(mnt_idmap, path->dentry, stat);
-}
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
-static int prlfs_getattr(const struct path *path, struct kstat *stat,
-		u32 request_mask, unsigned int query_flags)
-{
-	return __prlfs_getattr(path->dentry, stat);
-}
-#else
-static int prlfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
-		 struct kstat *stat)
-{
-	return __prlfs_getattr(dentry, stat);
-}
-#endif
 
 static int __prlfs_permission(struct inode *inode, int mask)
 {
@@ -924,8 +951,8 @@ static struct inode *prlfs_get_inode(struct super_block *sb, prl_umode_t mode)
 	if (inode) {
 		inode->i_mode = mode;
 		inode->i_blocks = 0;
-		inode->i_ctime = prlfs_current_time(inode);
-		inode->i_atime = inode->i_mtime = inode->i_ctime;
+		inode->i_atime = inode->i_mtime = 
+			prlfs_inode_set_ctime_to_ts(inode, prlfs_current_time(inode));
 		if (PRLFS_SB(sb)->share) {
 			inode->i_uid = current->cred->uid;
 			inode->i_gid = current->cred->gid;
@@ -970,8 +997,8 @@ void prlfs_read_inode(struct inode *inode)
 	struct prlfs_fd *pfd;
 
 	inode->i_mode = S_IFDIR | S_IRUGO | S_IXUGO | S_IWUSR;
-	inode->i_ctime = prlfs_current_time(inode);
-	inode->i_atime = inode->i_mtime = inode->i_ctime;
+	inode->i_atime = inode->i_mtime = 
+		prlfs_inode_set_ctime_to_ts(inode, prlfs_current_time(inode));
 	if (PRLFS_SB(sb)->share) {
 		inode->i_uid = current->cred->uid;
 		inode->i_gid = current->cred->gid;

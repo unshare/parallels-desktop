@@ -435,9 +435,21 @@ struct file_operations prlfs_file_fops = {
 	.unlocked_ioctl = prlfs_ioctl,
 };
 
+/* TODO 
+wrap prlfs_readdir via kernel defined wrapper to reacquire inode lock 
+(shared->exclusive) and pass this wrapper as file_operation->iterate_shared. 
+Research is required to check whether it is required to hold any kinda 
+inode lock during execution of prlfs_readdir
+*/ 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,5,0)
+WRAP_DIR_ITER(prlfs_readdir)
+#endif
+
 struct file_operations prlfs_dir_fops = {
 	.open		= prlfs_open,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,5,0)
+	.iterate_shared	= shared_prlfs_readdir,
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
 	.iterate	= prlfs_readdir,
 #else
 	.readdir	= prlfs_readdir,

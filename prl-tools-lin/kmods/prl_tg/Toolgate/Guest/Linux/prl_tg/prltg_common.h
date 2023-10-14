@@ -206,6 +206,7 @@ tg_out(struct tg_dev *dev, unsigned long port, unsigned long long val)
 struct pci_dev;
 struct file_operations;
 // Exported functions
+struct device* prl_tg_get_device_from_pci_device(struct pci_dev *pci_dev);
 int prl_tg_probe_common(struct tg_dev *pdev, board_t board,
                         struct proc_ops *proc_ops);
 void prl_tg_remove_common(struct tg_dev *dev);
