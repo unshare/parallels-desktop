@@ -130,6 +130,7 @@ typedef struct _TG_PAGED_REQUEST {
 
 #define TG_REQUEST_FS_L_READLNK 0x22c
 #define TG_REQUEST_FS_L_CREATELNK 0x22d
+#define TG_REQUEST_FS_L_IOCTL_BYPASS 0x22e
 
 #define TG_REQUEST_FS_CONTROL 0x23d	// version 4 request
 #define TG_REQUEST_FS_GETVERSION 0x23e

@@ -45,15 +45,10 @@ unsigned long *prlfs_dfl( struct dentry *de)
 	return (unsigned long *)&(de->d_fsdata);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-#define prlfs_user_ns (init_task.cred->user_ns)
-#define prlfs_setattr_copy(inode, attr) \
-		setattr_copy(prlfs_user_ns, inode, attr)
-#define prlfs_fillattr(inode, stat) \
-		generic_fillattr(prlfs_user_ns, inode, stat)
-#else
-#define prlfs_setattr_copy(inode, attr) setattr_copy(inode, attr)
-#define prlfs_fillattr(inode, stat) generic_fillattr(inode, stat)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0)
+typedef struct mnt_idmap prl_idmap_t;
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+typedef struct user_namespace prl_idmap_t;
 #endif
 
 void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
@@ -63,6 +58,17 @@ void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
 	bd->len = len;
 	bd->write = (write == 0) ? 0 : 1;
 	bd->flags = TG_REQ_COMMON;
+	bd->kernelSpace = true;
+}
+
+void init_user_buffer_descriptor(struct buffer_descriptor *bd, void __user *buf,
+			    unsigned long long len, int write)
+{
+	bd->buf = (void *)buf;
+	bd->len = len;
+	bd->write = (write == 0) ? 0 : 1;
+	bd->flags = TG_REQ_COMMON;
+	bd->kernelSpace = false;
 }
 
 static int prepend(char **buffer, int *buflen, const char *str, int namelen)
@@ -244,7 +250,7 @@ static int prlfs_mknod(struct inode *dir, struct dentry *dentry,
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_create(struct user_namespace *mnt_userns,
+static int prlfs_create(prl_idmap_t *mnt_idmap,
                         struct inode *dir, struct dentry *dentry,
                         prl_umode_t mode, bool excl)
 #else
@@ -313,7 +319,7 @@ static int prlfs_unlink(struct inode *dir, struct dentry *dentry)
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_mkdir(struct user_namespace *mnt_userns, struct inode *dir,
+static int prlfs_mkdir(prl_idmap_t *mnt_idmap, struct inode *dir,
                        struct dentry *dentry, prl_umode_t mode)
 #else
 static int prlfs_mkdir(struct inode *dir, struct dentry *dentry,
@@ -370,7 +376,7 @@ out_free_nbuf:
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_rename(struct user_namespace *mnt_userns,
+static int prlfs_rename(prl_idmap_t *mnt_idmap,
                         struct inode *old_dir, struct dentry *old_de,
                         struct inode *new_dir, struct dentry *new_de,
                         unsigned int flags)
@@ -401,7 +407,12 @@ static int check_dentry(struct dentry *dentry)
 	return *prlfs_dfl(dentry) & PRL_DFL_UNLINKED;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+static int prlfs_inode_setattr(prl_idmap_t *mnt_idmap,
+                               struct inode *inode, struct iattr *attr)
+#else
 static int prlfs_inode_setattr(struct inode *inode, struct iattr *attr)
+#endif
 {
 	int ret = 0;
 
@@ -412,14 +423,19 @@ static int prlfs_inode_setattr(struct inode *inode, struct iattr *attr)
 			goto out;
 		truncate_setsize(inode, attr->ia_size);
 	}
-	prlfs_setattr_copy(inode, attr);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+	setattr_copy(mnt_idmap, inode, attr);
+#else
+	setattr_copy(inode, attr);
+#endif
+	
 	mark_inode_dirty(inode);
 out:
 	return ret;
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_setattr(struct user_namespace *mnt_userns,
+static int prlfs_setattr(prl_idmap_t *mnt_idmap, 
                          struct dentry *dentry, struct iattr *attr)
 #else
 static int prlfs_setattr(struct dentry *dentry, struct iattr *attr)
@@ -444,7 +460,14 @@ static int prlfs_setattr(struct dentry *dentry, struct iattr *attr)
 	init_buffer_descriptor(&bd, pattr, PATTR_STRUCT_SIZE, 0);
 	ret = host_request_attr(sb, p, buflen, &bd);
 	if (ret == 0)
+	{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+		ret = prlfs_inode_setattr(mnt_idmap, dentry->d_inode, attr);
+#else
 		ret = prlfs_inode_setattr(dentry->d_inode, attr);
+#endif
+	}
+
 	dentry->d_time = 0;
 out_free_pattr:
 	kfree(pattr);
@@ -507,8 +530,12 @@ struct dentry_operations prlfs_dentry_ops = {
 	.d_revalidate = prlfs_d_revalidate,
 };
 
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+inline int __prlfs_getattr(prl_idmap_t *mnt_idmap, 
+                           struct dentry *dentry, struct kstat *stat)
+#else
 inline int __prlfs_getattr(struct dentry *dentry, struct kstat *stat)
+#endif
 {
 	int ret;
 	DPRINTK("ENTER\n");
@@ -521,7 +548,11 @@ inline int __prlfs_getattr(struct dentry *dentry, struct kstat *stat)
 	if (ret < 0)
 		goto out;
 
-	prlfs_fillattr(dentry->d_inode, stat);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+	generic_fillattr(mnt_idmap, dentry->d_inode, stat);
+#else
+	generic_fillattr(dentry->d_inode, stat);
+#endif
 	if (PRLFS_SB(dentry->d_sb)->share) {
 		if (prlfs_uid_valid(stat->uid))
 			stat->uid = current->cred->fsuid;
@@ -534,11 +565,11 @@ out:
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_getattr(struct user_namespace *mnt_userns,
+static int prlfs_getattr(prl_idmap_t *mnt_idmap,
                          const struct path *path, struct kstat *stat,
                          u32 request_mask, unsigned int query_flags)
 {
-	return __prlfs_getattr(path->dentry, stat);
+	return __prlfs_getattr(mnt_idmap, path->dentry, stat);
 }
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 static int prlfs_getattr(const struct path *path, struct kstat *stat,
@@ -589,31 +620,25 @@ static int __prlfs_permission(struct inode *inode, int mask)
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_permission(struct user_namespace *mnt_userns,
+static int prlfs_permission(prl_idmap_t *mnt_idmap,
                             struct inode *inode, int mask)
-{
-	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
-
-	if (mask & MAY_NOT_BLOCK)
-		return -ECHILD;
-	if (!sbi->share)
-		return generic_permission(prlfs_user_ns, inode, mask);
-
-	return __prlfs_permission(inode, mask);
-}
 #else
 static int prlfs_permission(struct inode *inode, int mask)
+#endif
 {
 	struct prlfs_sb_info *sbi = PRLFS_SB(inode->i_sb);
 
 	if (mask & MAY_NOT_BLOCK)
 		return -ECHILD;
 	if (!sbi->share)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+		return generic_permission(mnt_idmap, inode, mask);
+#else
 		return generic_permission(inode, mask);
+#endif
 
 	return __prlfs_permission(inode, mask);
 }
-#endif
 
 static char *do_read_symlink(struct dentry *dentry)
 {
@@ -689,7 +714,7 @@ static void *prlfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int prlfs_symlink(struct user_namespace *mnt_userns,
+static int prlfs_symlink(prl_idmap_t *mnt_idmap,
                          struct inode *dir, struct dentry *dentry,
                          const char *symname)
 #else
@@ -777,7 +802,8 @@ int prlfs_readpage(struct file *file, struct page *page) {
 	return 0;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0) || \
+				defined(PRLFS_RHEL_9_3_GE)
 static int prlfs_read_folio(struct file *file, struct folio *folio)
 {
 	return prlfs_readpage(file, &folio->page);
@@ -850,7 +876,8 @@ out:
 }
 
 static const struct address_space_operations prlfs_aops = {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0) || \
+				defined(PRLFS_RHEL_9_3_GE)
 	.read_folio		= prlfs_read_folio,
 #else
 	.readpage		= prlfs_readpage,
@@ -858,7 +885,8 @@ static const struct address_space_operations prlfs_aops = {
 	.writepage		= prlfs_writepage,
 	.write_begin    = simple_write_begin,
 	.write_end      = prlfs_write_end,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) || \
+				defined(PRLFS_RHEL_9_2_GE)
 	.dirty_folio    = filemap_dirty_folio,
 #else
 	.set_page_dirty = __set_page_dirty_nobuffers,

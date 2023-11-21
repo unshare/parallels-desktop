@@ -30,8 +30,11 @@ IBACKUP_DIR="/var/lib/parallels-tools"
 INSTALL_DIR="/usr/lib/parallels-tools"
 MODPROBED_DIR="/etc/modprobe.d"
 MODPROBE_CONF="/etc/modprobe.conf"
-ALIAS_NE2K_OFF="install ne2k-pci /bin/true # replaced by prl_eth"
+# Legacy command for blacklisting (prl_eth). Should be removed during deinstallation
+ALIAS_NE2K_OFF="install ne2k-pci /bin/true"
+# Legacy command for conditional blacklisting (prl_eth). Should be removed during deinstallation
 ALIAS_NE2K_OVERRIDE="install ne2k-pci modprobe -q prl_eth || modprobe -i ne2k-pci"
+# Legacy conf file for blacklisting (prl_eth). Should be removed during deinstallation
 MODPROBE_PRL_ETH_CONF="$MODPROBED_DIR/prl_eth.conf"
 
 INSTALL_DIR_KMODS="$INSTALL_DIR/kmods"
@@ -71,8 +74,13 @@ if [ "$ARCH" = "aarch64" ]; then
 		)
 else
 	KMODS_PATHS+=(
-		'prl_eth/pvmnet'
 		'prl_vid/Video/Guest/Linux/kmod'
+		)
+fi
+
+if [ "$ARCH" != "aarch64" ]; then
+	REMOVE_ONLY_KMODS_PATHS=(
+		'prl_eth/pvmnet'
 		)
 fi
 
@@ -330,7 +338,8 @@ remove_kernel_modules() {
 		done
 	fi
 
-	for kmod_path in "${KMODS_PATHS[@]}"; do
+	local KMODS_PATHS_TO_REMOVE=("${KMODS_PATHS[@]}" "${REMOVE_ONLY_KMODS_PATHS[@]}")
+	for kmod_path in "${KMODS_PATHS_TO_REMOVE[@]}"; do
 		local kmod="${kmod_path%%/*}"
 		local kmod_dir="$INSTALL_DIR_KMODS/$kmod"
 		local fmod="$KDIR/$kmod.ko"
@@ -338,14 +347,16 @@ remove_kernel_modules() {
 		tell_user "Start removal of $kmod kernel module"
 
 		# Unload kernel module
-		if rmmod "$kmod" > /dev/null 2>&1; then
-			tell_user "Kernel module $kmod was unloaded"
-		else
-			perror "Error: could not unload $kmod kernel module"
+		if lsmod | grep -q "^$kmod\s"; then
+			if rmmod "$kmod" > /dev/null 2>&1; then
+				tell_user "Kernel module $kmod was unloaded"
+			else
+				perror "Error: could not unload $kmod kernel module"
+			fi
 		fi
 
 		# Remove kernel module from directory
-		rm -f "$fmod"
+		[ -f "$fmod" ] && rm -f "$fmod"
 
 		# Remove directory if it exists
 		[ -d "$kmod_dir" ] && rm -rf "$kmod_dir"
@@ -1103,10 +1114,11 @@ install_tools_modules() {
 	[ $result -ne $E_NOERROR ] && return $result
 
 	# Install Parallels Shared Folders automount daemon
-	local fsmountd_src="$INSTALL_DIR_TOOLS/prlfsmountd.sh"
-	local fsmountd_dst="$BIN_DIR/prlfsmountd"
-	install_file "$fsmountd_src" "$fsmountd_dst"
-
+	install_file "$INSTALL_DIR_TOOLS/prlfsmountd.sh" "$BIN_DIR/prlfsmountd"
+	if [ "$ARCH" = "aarch64" ]; then
+		install_file "$INSTALL_DIR_TOOLS/prlbinfmtconfig.sh" "$BIN_DIR/prlbinfmtconfig"
+	fi
+	
 	install_selinux_module_make "$INSTALLER_DIR/prltoolsd.te" "$BIN_DIR/$TOOLSD"
 	# prltoolsd accesses this directory during startup
 	# and this should be permitted by SELinux
@@ -1160,8 +1172,10 @@ install_tools_modules() {
 	install_file "$shprint" "$BIN_DIR/prlshprint"
 
 	# Install user session manager tool
-	local usmd="$TOOLS_BIN_DIR/bin/prlusmd"
-	install_file "$usmd" "$BIN_DIR/prlusmd"
+	if [ "$ARCH" != "aarch64" ]; then
+		local usmd="$TOOLS_BIN_DIR/bin/prlusmd"
+		install_file "$usmd" "$BIN_DIR/prlusmd"
+	fi
 
 	setup_session_launcher "${INSTALL_DIR_TOOLS}/prlcc.desktop"
 
@@ -1209,7 +1223,11 @@ remove_gt() {
 		rm -f "$MODPROBED_DIR/blacklist-parallels.conf"
 		rm -f "$MODPROBED_DIR/blacklist-parallels"
 	fi
+	
+	# Remove legacy conf file for blacklisting (prl_eth)
 	rm -f "$MODPROBE_PRL_ETH_CONF"
+
+	# Remove from global conf legacy blacklisting (prl_eth)
 	if [ -f "$MODPROBE_CONF" ]; then
 		cmds="$ALIAS_NE2K_OFF:$ALIAS_NE2K_OVERRIDE"
 		IFS=':'
@@ -1420,16 +1438,13 @@ install_guest_tools() {
 	cp -Rf "$INSTALL_GUI" "$INSTALL_DIR"
 	cp -Rf "$BASE_DIR/version" "$INSTALL_DIR"
 
-	# Install blacklist and override ne2k-pci by our prl_eth
-	if [ -d "$MODPROBED_DIR" ]; then
-		if [ "$ARCH" != "aarch64" ]; then
+	# Install blacklist for prl_vid
+	if [ "$ARCH" != "aarch64" ]; then
+		if [ -d "$MODPROBED_DIR" ]; then
 			cp -f "$INSTALLER_DIR/blacklist-parallels.conf" "$MODPROBED_DIR"
+		else
+			echo "Skip installing of blacklist-parallels.conf. $MODPROBED_DIR is missing"
 		fi
-		echo "$ALIAS_NE2K_OVERRIDE" > "$MODPROBE_PRL_ETH_CONF"
-	elif [ -f "$MODPROBE_CONF" ]; then
-		echo "$ALIAS_NE2K_OVERRIDE" >> "$MODPROBE_CONF"
-	else
-		echo "$MODPROBE_CONF is missing"
 	fi
 
 	echo_progress

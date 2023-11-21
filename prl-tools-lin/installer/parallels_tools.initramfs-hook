@@ -24,6 +24,5 @@ esac
 
 manual_add_modules prl_tg
 if [ "$ARCH" != "aarch64" ]; then
-	manual_add_modules prl_eth
 	manual_add_modules prl_vid
 fi

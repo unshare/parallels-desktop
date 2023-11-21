@@ -17,7 +17,13 @@
 #include <linux/fcntl.h>
 
 #include <linux/version.h>
+
 #ifdef RHEL_RELEASE_CODE
+// Fedora 36 defines RHEL_RELEASE_VERSION=9.99 while the kernel 
+// API isn’t actually compatible with the RHEL kernel. So, ignore
+// RHEL_RELEASE_CODE in this case
+#if RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(9, 99)
+
 #if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)
 #define PRLFS_RHEL_7_3_GE 1
 #endif
@@ -27,7 +33,15 @@
 #if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 4)
 #define PRLFS_RHEL_8_4_GE 1
 #endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 2)
+#define PRLFS_RHEL_9_2_GE 1
 #endif
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 3)
+#define PRLFS_RHEL_9_3_GE 1
+#endif
+
+#endif // #if RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(9, 99)
+#endif // #ifdef RHEL_RELEASE_CODE
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 #include <linux/backing-dev-defs.h>
@@ -130,9 +144,13 @@ struct buffer_descriptor {
 	unsigned long long len;
 	int write;
 	int flags;
+	int kernelSpace;
 };
 
 void init_buffer_descriptor(struct buffer_descriptor *bd, void *buf,
+			    unsigned long long len, int write);
+
+void init_user_buffer_descriptor(struct buffer_descriptor *bd, void __user *buf,
 			    unsigned long long len, int write);
 
 void *prlfs_get_path(struct dentry *dentry, void *buf, int *plen);
@@ -174,6 +192,8 @@ int host_request_readlink(struct super_block *sb, void *src_path, int src_len,
                                                   void *tgt_path, int tgt_len);
 int host_request_symlink(struct super_block *sb, const void *src_path, int src_len,
                          const void *tgt_path, int tgt_len);
+int host_request_ioctl(struct super_block *sb, struct prlfs_file_info *pfi,
+						unsigned cmd, struct buffer_descriptor *bd);
 
 /* define to 1 to enable copious debugging info */
 #undef DRV_DEBUG
