@@ -442,6 +442,11 @@ static void send_vmcoreinfo(struct tg_dev *dev)
 #endif
 }
 
+struct device* prl_tg_get_device_from_pci_device(struct pci_dev *pci_dev)
+{
+	return &pci_dev->dev;
+}
+
 int prl_tg_probe_common(struct tg_dev *dev, board_t board,
                         struct proc_ops *proc_ops)
 {

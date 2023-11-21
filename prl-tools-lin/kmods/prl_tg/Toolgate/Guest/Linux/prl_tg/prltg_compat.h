@@ -59,21 +59,21 @@
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
-#define prl_get_user_pages(_1, _2, _3, _4, _5) \
-		get_user_pages(_1, _2, (_3) ? FOLL_WRITE : 0, _4) /* _5 is always NULL */
+#define prl_get_user_pages(_1, _2, _3, _4) \
+		get_user_pages(_1, _2, (_3) ? FOLL_WRITE : 0, _4)
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0) || defined(OPENSUSE_4_4_76)
-#define prl_get_user_pages(_1, _2, _3, _4, _5) \
-		get_user_pages(_1, _2, (_3) ? FOLL_WRITE : 0, _4, _5)
+#define prl_get_user_pages(_1, _2, _3, _4) \
+		get_user_pages(_1, _2, (_3) ? FOLL_WRITE : 0, _4, NULL)
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0)
-#define prl_get_user_pages(_1, _2, _3, _4, _5) \
-		get_user_pages(_1, _2, _3, 0, _4, _5)
+#define prl_get_user_pages(_1, _2, _3, _4) \
+		get_user_pages(_1, _2, _3, 0, _4, NULL)
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 168) && \
 		LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
-#define prl_get_user_pages(_1, _2, _3, _4, _5) \
-		get_user_pages(current, current->mm, _1, _2, (_3) ? FOLL_WRITE : 0, _4, _5)
+#define prl_get_user_pages(_1, _2, _3, _4) \
+		get_user_pages(current, current->mm, _1, _2, (_3) ? FOLL_WRITE : 0, _4, NULL)
 #else
-#define prl_get_user_pages(_1, _2, _3, _4, _5) \
-		get_user_pages(current, current->mm, _1, _2, _3, 0, _4, _5)
+#define prl_get_user_pages(_1, _2, _3, _4) \
+		get_user_pages(current, current->mm, _1, _2, _3, 0, _4, NULL)
 #endif
 
 

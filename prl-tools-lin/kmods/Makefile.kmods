@@ -22,10 +22,16 @@ ifeq "$(wildcard $(KERNEL_DIR)/include/linux/version.h)" ""
 else
 	VERSION_H_PATH ?= $(KERNEL_DIR)/include/linux/version.h
 endif
+
+$(info Kernel version file: CC="$(VERSION_H_PATH)".)
+$(info Raw kernel version: "$(shell cat "$(VERSION_H_PATH)" | grep LINUX_VERSION_CODE)")
+
 H := \#
 VERSION_CODE := $(shell awk '\
 		/^[[:space:]]*$(H)define[[:space:]]+LINUX_VERSION_CODE[[:space:]]+[0-9]+/\
 		{ v = $$3 } END { print v }' $(VERSION_H_PATH))
+
+$(info Kernel version code: CC="$(VERSION_CODE)".)
 
 ifndef PRL_VID_SKIP
 	ifeq ($(shell if [ $(VERSION_CODE) -ge 330240 -a -d $(PRL_VID) ]; then echo y; fi),y)
