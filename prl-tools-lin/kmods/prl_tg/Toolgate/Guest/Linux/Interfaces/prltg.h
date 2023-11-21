@@ -102,4 +102,8 @@ struct dumb_params_desc {
 	unsigned long long aperture_addr;
 };
 
+struct dbg_vmcoreinfo_desc {
+	unsigned long long note_paddr;
+};
+
 #endif

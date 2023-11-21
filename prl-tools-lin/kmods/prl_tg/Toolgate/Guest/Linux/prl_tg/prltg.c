@@ -11,6 +11,10 @@
 #include <linux/hash.h>
 #include <linux/delay.h>
 #include <linux/version.h>
+#if defined(CONFIG_CRASH_CORE) && LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
+#	include <linux/crash_core.h>
+#	define REPORT_VMCOREINFO
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
 #include <asm-generic/pci_iomap.h>
 #else
@@ -428,6 +432,37 @@ prltg_proc_create_data(char *name, umode_t mode, struct proc_dir_entry *parent,
 #endif
 }
 
+static void send_vmcoreinfo(struct tg_dev *dev)
+{
+#ifdef REPORT_VMCOREINFO
+	struct {
+		TG_REQUEST req;
+		struct dbg_vmcoreinfo_desc vmcore;
+		TG_UINT64 align;
+	} src = {{
+			.Request = TG_REQUEST_DBG_VMCOREINFO,
+			.Status	= TG_STATUS_PENDING,
+			.InlineByteCount = sizeof(struct dbg_vmcoreinfo_desc),
+			.BufferCount = 0,
+			.Reserved = 0
+		},
+		{
+			.note_paddr = paddr_vmcoreinfo_note()
+		}
+	};
+
+	TG_REQ_DESC sdesc = {
+		.src = &src.req,
+		.idata = &src.vmcore,
+		.sbuf = 0,
+		.flags = 0
+	};
+	call_tg_sync(dev, &sdesc);
+#else
+	(void)dev;
+#endif
+}
+
 int prl_tg_probe_common(struct tg_dev *dev, board_t board,
                         struct proc_ops *proc_ops)
 {
@@ -461,6 +496,9 @@ int prl_tg_probe_common(struct tg_dev *dev, board_t board,
 	/* enable interrupt */
 	tg_out32(dev, TG_PORT_MASK, TG_MASK_COMPLETE);
 
+	if (board == TOOLGATE) {
+		send_vmcoreinfo(dev);
+	}
 	if (board != VIDEO_DRM_TOOLGATE) {
 		struct proc_dir_entry *p;
 		char proc_file[16];
