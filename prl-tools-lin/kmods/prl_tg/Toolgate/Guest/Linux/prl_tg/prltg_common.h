@@ -227,3 +227,9 @@ static inline bool prl_tg_req_ptr_size_check(size_t nbytes)
 }
 
 #endif /* __PRL_TG_COMNON_H__ */
+
+#ifdef INTELLISENSE
+#define DRV_SHORT_NAME "prl_tg"
+#define DRV_LONG_NAME "Parallels ToolGate"
+#define DRV_VERSION "1.7.1"
+#endif

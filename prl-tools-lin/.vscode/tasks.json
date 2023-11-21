@@ -1,0 +1,155 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Parallels Tools for Linux: select kernel",
+            "type": "process",
+            "command": "./select_kernel.bash",
+            "args": [
+                "${input:kernelDevel}"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/kmods"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "isBuildCommand": false,
+            "problemMatcher": []
+        },
+        {
+            "label": "Parallels Tools for Linux: clean kernel modules",
+            "type": "process",
+            "command": "make",
+            "args": [
+                "KERNEL_DIR=${workspaceFolder}/kmods/kernel",
+                "-f",
+                "Makefile.kmods",
+                "clean"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/kmods"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "isBuildCommand": false,
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Parallels Tools for Linux: build kernel modules",
+            "type": "process",
+            "command": "make",
+            "args": [
+                "CC=gcc",
+                "KERNEL_DIR=${workspaceFolder}/kmods/kernel",
+                "-f",
+                "Makefile.kmods",
+                "compile"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/kmods"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "isBuildCommand": true,
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Parallels Tools for Linux: rebuild kernel modules",
+            "type": "process",
+            "command": "make",
+            "args": [
+                "CC=gcc",
+                "KERNEL_DIR=${workspaceFolder}/kmods/kernel",
+                "-f",
+                "Makefile.kmods",
+                "clean",
+                "compile"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/kmods"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "isBuildCommand": true,
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Parallels Tools for Linux: reinstall (test)",
+            "type": "process",
+            "command": "./reinstall.bash",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "isTestCommand": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Parallels Tools for Linux: repack ISO",
+            "type": "process",
+            "command": "./repack.bash",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "isBuildCommand": true,
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "kernelDevel",
+            "type": "command",
+            "command": "shellCommand.execute",
+            "args": {
+                "command": "ls -1 /usr/src/kernels"
+            }
+        }
+    ]
+}

@@ -21,6 +21,7 @@
 #include <linux/workqueue.h>
 #include <linux/namei.h>
 #include <linux/slab.h>
+#include <linux/blkdev.h>
 #include <asm/uaccess.h>
 #include "prlfs_freeze_compat.h"
 
@@ -348,6 +349,11 @@ void __exit cleanup_module(void)
 	thaw_all();
 	cancel_timeout();
 }
+
+#ifdef INTELLISENSE
+#define KBUILD_MODNAME "prl_fs_freeze"
+#define KBUILD_MODFILE KBUILD_MODNAME ## ".mod"
+#endif
 
 MODULE_AUTHOR ("Parallels International GmbH");
 MODULE_DESCRIPTION ("Parallels suspend/resume helper");

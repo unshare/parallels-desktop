@@ -13,8 +13,9 @@ PRL_FREEZE ?= prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze
 PRL_VID ?= prl_vid/Video/Guest/Linux/kmod
 PRL_NOTIFIER ?= prl_notifier/Installation/lnx/prl_notifier
 
-KVER ?= $(shell uname -r)
-KERNEL_DIR ?= /lib/modules/$(KVER)/build
+export KVER := $(or ${KVER},$(if ${KERNEL_DIR},$(shell basename `readlink -f ${KERNEL_DIR}`),$(shell uname -r)))
+export KERNEL_DIR := $(or ${KERNEL_DIR},/lib/modules/${KVER}/build)
+$(info Kernel: ${KVER}, dir: ${KERNEL_DIR})
 
 # Get version from version.h in kernel source directory
 ifeq "$(wildcard $(KERNEL_DIR)/include/linux/version.h)" ""

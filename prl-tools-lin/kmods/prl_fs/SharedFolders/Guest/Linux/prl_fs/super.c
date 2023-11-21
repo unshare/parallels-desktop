@@ -615,6 +615,11 @@ static void __exit exit_prlfs(void)
 module_init(init_prlfs)
 module_exit(exit_prlfs)
 
+#ifdef INTELLISENSE
+#define KBUILD_MODNAME "prlfs"
+#define KBUILD_MODFILE KBUILD_MODNAME ## ".mod"
+#endif
+
 MODULE_AUTHOR ("Parallels International GmbH");
 MODULE_DESCRIPTION ("Parallels linux guest filesystem");
 MODULE_LICENSE("Parallels");

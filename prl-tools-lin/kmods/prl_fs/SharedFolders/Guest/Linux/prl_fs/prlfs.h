@@ -220,4 +220,11 @@ enum {
 };
 
 unsigned long *prlfs_dfl( struct dentry *de);
+
+#ifdef INTELLISENSE
+/* IntelliSense fails miserably in inline assembly */
+#undef BUG
+#define BUG() do {} while (0)
+#endif
+
 #endif /* __PRL_FS_H__ */

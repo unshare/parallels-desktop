@@ -4,7 +4,7 @@
 
 #if PRL_DRM_ENABLED
 #include <linux/version.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,3,0)
+#if PRL_DRM_OLD_HEADER_LAYOUT
 #include <drm/drmP.h>
 #else
 #include <drm/drm_drv.h>
@@ -925,8 +925,7 @@ static void prl_kms_atomic_update_primary_plane_helper(struct drm_plane *plane, 
 	struct drm_device *dev = (struct drm_device*)plane->dev;
 	struct prl_framebuffer *prl_fb = (struct prl_framebuffer *)plane->state->fb;
 #if (PRL_DRM_PLANE_HELPER_CALLS_X == 1)
-	struct drm_plane_state *old_plane_state = drm_atomic_get_old_plane_state(old_state, plane);
-	struct drm_crtc *crtc = plane->state->crtc ? plane->state->crtc : old_plane_state->crtc;
+	struct drm_crtc *crtc = plane->state->crtc ? plane->state->crtc : old_state->planes->old_state->crtc;
 #else
 	struct drm_crtc *crtc = plane->state->crtc ? plane->state->crtc : old_state->crtc;
 #endif
@@ -962,7 +961,7 @@ static void prl_kms_atomic_update_cursor_plane_helper(struct drm_plane *plane, s
 	struct drm_device *dev = plane->dev;
 	struct prl_drm_device *prl_dev = (struct prl_drm_device*)dev->dev_private;
 #if (PRL_DRM_PLANE_HELPER_CALLS_X == 1)
-	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(prev_state, plane);
+	struct drm_plane_state *old_state = prev_state->planes->old_state;
 #else
 	struct drm_plane_state *old_state = prev_state;
 #endif
@@ -1335,7 +1334,7 @@ static void prl_drm_head_init(struct prl_drm_device *prl_dev, int index)
 	drm_object_attach_property(&connector->base, dev->mode_config.suggested_x_property, 0);
 	drm_object_attach_property(&connector->base, dev->mode_config.suggested_y_property, 0);
 	connector->status = (index == 0) ? connector_status_connected : connector_status_disconnected;
-	connector->state->best_encoder = (index == 0) ? encoder : NULL;
+	connector->state->best_encoder = encoder;
 	drm_connector_attach_encoder_X(connector, encoder);
 	drm_connector_register(connector);
 
@@ -2172,7 +2171,6 @@ static int prl_drm_host_request_ioctl(struct drm_device *dev, void *data, struct
 static int prl_drm_enable_heads_ioctl(struct drm_device *dev, void *data, struct drm_file *file)
 {
 	struct drm_connector *connector;
-	struct drm_encoder *encoder = NULL;
 	unsigned index = *(unsigned*)data;
 	unsigned i = 0;
 	bool enable = (index & 0x80);
@@ -2180,19 +2178,10 @@ static int prl_drm_enable_heads_ioctl(struct drm_device *dev, void *data, struct
 
 	DRM_DEBUG_DRIVER(PFX_FMT " HEAD-%u will be %sabled", PFX_ARG, index, enable ? "en" : "dis");
 
-	if (enable) {
-		// Find asociated encoder from list
-		list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
-			if (encoder->possible_crtcs & (1 << index))
-				break;
-		}
-	}
-
 	mutex_lock(&dev->mode_config.mutex);
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		if (i == index /*&& connector->status != status*/) {
 			connector->status = enable ?  connector_status_connected : connector_status_disconnected;
-			connector->state->best_encoder = encoder;
 			prl_drm_enable_heads(dev->dev_private,
 				container_of(connector, struct prl_drm_head, connector), enable);
 		}
