@@ -69,7 +69,7 @@ static int TG_ERR(unsigned status)
 	for (i = 0; i < sz; i++)
 		if (status == linux_err_tbl[i].tg)
 			return linux_err_tbl[i].error;
-	DPRINTK("prlfs:WARN unknown error status = %d\n", status);
+	DPRINTK(PFX "WARN unknown error status = %x\n", status);
 	return -EINVAL;
 }
 

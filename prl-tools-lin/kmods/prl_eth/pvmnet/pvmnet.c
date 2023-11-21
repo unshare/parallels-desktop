@@ -408,18 +408,19 @@ static const struct net_device_ops pvmnet_netdev_ops = {
    .ndo_stop = pvmnet_close,
    .ndo_init = pvmnet_init,
    .ndo_uninit = pvmnet_free,
-#if REAL_LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)
    .ndo_set_multicast_list = pvmnet_set_multicast_list,
 #else
    .ndo_set_rx_mode = pvmnet_set_multicast_list,
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
 #ifdef RHEL_RELEASE_CODE
-#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 5) && \
-    RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8, 0)
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 5)
 	.extended.ndo_change_mtu = eth_change_mtu,
 #else
 	.ndo_change_mtu = eth_change_mtu,
+#endif
 #endif
 #endif
 };
@@ -443,6 +444,11 @@ static void pvmnet_setup(struct net_device *dev)
 
 	SET_ETHTOOL_OPS(dev, &pvmnet_ethtool_ops);
 }
+
+#ifdef INTELLISENSE
+#define KBUILD_MODNAME "prlvmnet"
+#define KBUILD_MODFILE KBUILD_MODNAME ## ".mod"
+#endif
 
 /* Module initialization/cleanup */
 static int pvmnet_module_init(void)

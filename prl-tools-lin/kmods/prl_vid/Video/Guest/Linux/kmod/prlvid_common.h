@@ -38,4 +38,13 @@ int prl_drm_suspend(struct pci_dev *pdev, pm_message_t state);
 int prl_drm_resume(struct pci_dev *pdev);
 #endif
 #endif
+
+#ifdef INTELLISENSE
+#define KBUILD_MODNAME "prl_vid"
+#define KBUILD_MODFILE KBUILD_MODNAME ## ".mod"
+#define DRV_DATE ""
+#define DRV_MAJOR 0
+#define DRV_MINOR 0
+#endif
+
 #endif
